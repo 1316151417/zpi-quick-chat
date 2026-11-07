@@ -2,18 +2,18 @@ import type { ImageInput } from "./types.ts";
 
 export const inputLimits = {
   textCharacters: 32000,
-  images: 4,
+  images: 5,
   imageBytes: 10 * 1024 * 1024,
   imagePixels: 16 * 1024 * 1024,
   messages: 200,
   conversationBytes: 32 * 1024 * 1024,
 } as const;
 const imageTypes = ["image/png", "image/jpeg", "image/webp", "image/gif"];
-const imageError = "最多带入 4 张图片，每张不超过 10 MiB，支持 PNG、JPEG、WebP 和 GIF";
+const imageError = "最多带入 5 张图片，每张不超过 10 MiB，支持 PNG、JPEG、WebP 和 GIF";
 
 export function validateImageCount(count: number): void {
   if (!Number.isSafeInteger(count) || count < 0 || count > inputLimits.images)
-    throw new Error("最多带入 4 张图片");
+    throw new Error("最多带入 5 张图片");
 }
 export function validateText(text: unknown, imageCount = 0): asserts text is string {
   if (

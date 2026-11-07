@@ -52,21 +52,38 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
     page.on("pageerror", (error) => errors.push(error.message));
     await page.waitForLoadState("domcontentloaded");
     const input = page.getByLabel("输入内容", { exact: true });
-    await page.locator("#files").setInputFiles({
-      name: "one.png",
-      mimeType: "image/png",
-      buffer: Buffer.from(
-        "iVBORw0KGgoAAAANSUhEUgAAAAMAAAACCAIAAAASFvFNAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEklEQVQImWP4z8AAQVDqPwMDAEHSBfsYFwTiAAAAAElFTkSuQmCC",
-        "base64",
-      ),
-    });
+    const pasteImages = (files: { name: string; mimeType: string; buffer: Buffer }[]) =>
+      page.evaluate(
+        (files) => {
+          const transfer = new DataTransfer();
+          for (const file of files)
+            transfer.items.add(
+              new File([new Uint8Array(file.bytes)], file.name, { type: file.mimeType }),
+            );
+          const event = new ClipboardEvent("paste", { bubbles: true, cancelable: true });
+          Object.defineProperty(event, "clipboardData", { value: transfer });
+          document.getElementById("input")!.dispatchEvent(event);
+        },
+        files.map((file) => ({ name: file.name, mimeType: file.mimeType, bytes: [...file.buffer] })),
+      );
+    await pasteImages([
+      {
+        name: "one.png",
+        mimeType: "image/png",
+        buffer: Buffer.from(
+          "iVBORw0KGgoAAAANSUhEUgAAAAMAAAACCAIAAAASFvFNAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEklEQVQImWP4z8AAQVDqPwMDAEHSBfsYFwTiAAAAAElFTkSuQmCC",
+          "base64",
+        ),
+      },
+    ]);
     await expect(page.locator("#images img")).toHaveCount(1);
     await input.fill("Translate hello");
-    await page.getByRole("button", { name: "发送" }).click();
+    await input.press("Enter");
     await expect(page.locator(".assistant")).toContainText("你好，世界");
+    await expect(page.getByRole("button", { name: "复制" })).toBeVisible();
     await expect(page.locator("#stop")).toBeHidden();
     await input.fill("Continue");
-    await page.getByRole("button", { name: "发送" }).click();
+    await input.press("Enter");
     await expect(page.locator(".assistant").last()).toContainText("继续对话");
     expect(JSON.stringify(api.requests[0].messages)).toContain("image_url");
     expect(JSON.stringify(api.requests[1].messages)).toContain("Translate hello");
@@ -119,23 +136,23 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
         },
         { index, failed },
       );
-    await page.locator("#files").setInputFiles([file("old-a.png"), file("old-b.png")]);
+    await pasteImages([file("old-a.png"), file("old-b.png")]);
     await expect.poll(readerCount).toBe(1);
     await page.evaluate(() => window.quickChat.invoke("reset"));
     await releaseImage(0);
     await expect(page.locator("#images img")).toHaveCount(0);
     expect(await readerCount()).toBe(1);
 
-    await page.locator("#files").setInputFiles([file("a.png"), file("b.png"), file("c.png")]);
-    await page.locator("#files").setInputFiles([file("d.png"), file("e.png"), file("f.png")]);
+    await pasteImages([file("a.png"), file("b.png"), file("c.png")]);
+    await pasteImages([file("d.png"), file("e.png"), file("f.png")]);
     for (let index = 1; index <= 6; index++) {
       await expect.poll(readerCount).toBeGreaterThan(index);
       await releaseImage(index);
     }
-    await expect(page.locator("#images img")).toHaveCount(4);
-    await expect(page.locator("#error")).toContainText("最多带入 4 张图片");
+    await expect(page.locator("#images img")).toHaveCount(5);
+    await expect(page.locator("#error")).toContainText("最多带入 5 张图片");
     await page.evaluate(() => window.quickChat.invoke("reset"));
-    await page.locator("#files").setInputFiles(file("cannot-read.png"));
+    await pasteImages([file("cannot-read.png")]);
     await expect.poll(readerCount).toBe(8);
     await releaseImage(7, true);
     await expect(page.locator("#error")).toContainText("读取图片失败");

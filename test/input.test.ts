@@ -17,7 +17,7 @@ test("shared limits validate text and supported image transport before native de
   assert.throws(() => validateText("x".repeat(inputLimits.textCharacters + 1)), /32000/);
   const image = { name: "one.png", mimeType: "image/png", data: "aGVsbG8=" };
   validateImages([image]);
-  validateImageCount(4);
+  validateImageCount(5);
   validateImageBytes(inputLimits.imageBytes);
   validateImagePixels(4096, 4096);
   for (const value of [
@@ -27,7 +27,7 @@ test("shared limits validate text and supported image transport before native de
     [{ ...image, data: "a" }],
     [{ ...image, data: "!=== " }],
     [{ ...image, mimeType: "image/svg+xml" }],
-    Array(5).fill(image),
+    Array(6).fill(image),
   ])
     assert.throws(() => validateImages(value), /图片/);
   assert.throws(() => validateImageFile({ type: "image/svg+xml", size: 10 }), /图片/);

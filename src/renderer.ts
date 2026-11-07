@@ -6,12 +6,13 @@ declare global {
   }
 }
 const bridge = window.quickChat;
+const copyIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>`;
+const checkIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>`;
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const input = element<HTMLTextAreaElement>("input"),
   messages = element("messages"),
   error = element("error"),
   previews = element("images"),
-  send = element<HTMLButtonElement>("send"),
   stop = element<HTMLButtonElement>("stop");
 const textNodes = new Map<string, HTMLElement>();
 let state: Snapshot = { generation: -1, messages: [], busy: false, model: "", reasoning: "" },
@@ -86,40 +87,44 @@ bridge.onSnapshot((snapshot) => {
   state = snapshot;
   messages.replaceChildren();
   textNodes.clear();
-  if (!snapshot.messages.length) {
-    const empty = document.createElement("div");
-    empty.className = "empty";
-    empty.textContent = "随时问一句，也可以带入文字或图片。";
-    messages.append(empty);
-  }
   for (const message of snapshot.messages) {
     const article = document.createElement("article");
     article.className = `message ${message.role}`;
+    if (message.images?.length) {
+      const gallery = document.createElement("div");
+      gallery.className = "message-images";
+      for (const image of message.images) {
+        const img = document.createElement("img");
+        img.src = `data:${image.mimeType};base64,${image.data}`;
+        img.alt = image.name;
+        gallery.append(img);
+      }
+      article.append(gallery);
+    }
     const text = document.createElement("div");
     textNodes.set(message.id, text);
     text.textContent = message.text || (snapshot.busy && message.role === "assistant" ? "…" : "");
     article.append(text);
-    for (const image of message.images ?? []) {
-      const img = document.createElement("img");
-      img.src = `data:${image.mimeType};base64,${image.data}`;
-      img.alt = image.name;
-      article.append(img);
-    }
     if (message.role === "assistant" && message.text) {
       const copy = document.createElement("button");
+      let timer = 0;
       copy.className = "copy";
-      copy.textContent = "复制";
-      copy.onclick = () => {
-        void invoke("copy", message.text);
+      copy.type = "button";
+      copy.title = "复制";
+      copy.setAttribute("aria-label", "复制");
+      copy.innerHTML = copyIcon;
+      copy.onclick = async () => {
+        if (!(await invoke("copy", message.text))) return;
+        copy.innerHTML = checkIcon;
+        window.clearTimeout(timer);
+        timer = window.setTimeout(() => (copy.innerHTML = copyIcon), 1200);
       };
       article.append(copy);
     }
     messages.append(article);
   }
-  element("model").textContent = `${snapshot.model}${snapshot.reasoning === "low" ? " · 思考" : ""}`;
   error.textContent = snapshot.error ?? "";
   error.hidden = !snapshot.error;
-  send.hidden = snapshot.busy;
   stop.hidden = !snapshot.busy;
   if (scroll) messages.scrollTop = messages.scrollHeight;
   void invoke("resize", snapshot.messages.length ? 620 : 300);
@@ -172,20 +177,9 @@ input.onpaste = (event) => {
     void addFiles(files);
   }
 };
-element<HTMLInputElement>("files").onchange = (event) => {
-  const target = event.target as HTMLInputElement;
-  void addFiles([...(target.files ?? [])]);
-  target.value = "";
-};
 element("new").onclick = () => {
   void invoke("reset");
   input.focus();
-};
-element("hide").onclick = () => {
-  void invoke("hide");
-};
-element("quit").onclick = () => {
-  void invoke("quit");
 };
 stop.onclick = () => {
   void invoke("stop");

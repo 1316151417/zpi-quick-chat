@@ -16,29 +16,14 @@ body {
   overflow: hidden;
 }
 header {
-  height: 45px;
+  height: 32px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 0 14px;
+  padding: 0 8px;
   -webkit-app-region: drag;
-  border-bottom: 1px solid #00000009;
 }
-header strong {
-  font-size: 13px;
-}
-#model {
-  color: #999;
-  font-size: 11px;
-}
-.actions {
-  margin-left: auto;
-  display: flex;
-  gap: 4px;
-}
-button,
-.attach {
+button {
   -webkit-app-region: no-drag;
   border: 0;
   border-radius: 7px;
@@ -48,14 +33,21 @@ button,
   font: inherit;
   padding: 5px 9px;
 }
-button:hover,
-.attach:hover {
+button:hover {
   background: #8882;
 }
-.actions button {
-  font-size: 20px;
+#new {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  font-size: 18px;
   color: #777;
-  width: 29px;
+  background: transparent;
+}
+#new:hover {
+  color: #202020;
 }
 main {
   min-height: 0;
@@ -63,11 +55,6 @@ main {
   overflow: auto;
   padding: 14px 18px;
   scrollbar-width: thin;
-}
-.empty {
-  color: #999;
-  text-align: center;
-  padding: 20px 0;
 }
 .message {
   margin-bottom: 20px;
@@ -85,16 +72,32 @@ main {
   padding: 0 3px;
 }
 .message .copy {
-  display: block;
-  font-size: 11px;
-  color: #999;
-  margin-top: 6px;
-}
-.message img,
-#images img {
-  max-width: 160px;
-  max-height: 120px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-top: 4px;
+  padding: 0;
   border-radius: 6px;
+  color: #999;
+  background: transparent;
+}
+.message .copy:hover {
+  color: inherit;
+  background: #8882;
+}
+.message-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.message-images img {
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 12px;
 }
 #error {
   color: #bb4b36;
@@ -127,21 +130,19 @@ textarea {
   color: inherit;
   font: inherit;
   line-height: 1.5;
-  max-height: 150px;
-  min-height: 48px;
+  field-sizing: content;
+  min-height: 1.5em;
+  max-height: 48px;
+  overflow-y: auto;
 }
 footer {
   display: flex;
-  align-items: center;
-  gap: 9px;
-  margin-top: 5px;
+  justify-content: flex-end;
+  margin-top: 4px;
 }
-footer span {
-  color: #aaa;
-  font-size: 11px;
-  flex: 1;
+footer:has(#stop[hidden]) {
+  display: none;
 }
-#send,
 #stop {
   background: #202020;
   color: white;
@@ -150,8 +151,8 @@ footer span {
 }
 #images {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
-  max-height: 95px;
   overflow: auto;
   padding: 0 15px;
 }
@@ -160,15 +161,25 @@ footer span {
   margin-bottom: 8px;
 }
 #images img {
-  max-height: 80px;
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 8px;
 }
 #images button {
   position: absolute;
-  top: 0;
-  right: 0;
+  top: -4px;
+  right: -4px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border-radius: 50%;
   background: #222b;
   color: white;
-  padding: 0 4px;
+  font-size: 10px;
+  line-height: 1;
 }
 button[hidden],
 [hidden] {
@@ -179,13 +190,12 @@ button[hidden],
     color: #e6e6e6;
     background: #202020;
   }
-  header {
-    border-color: #ffffff0a;
-  }
   #composer {
     background: #282828;
   }
-  #send,
+  #new:hover {
+    color: #e6e6e6;
+  }
   #stop {
     background: #e6e6e6;
     color: #202020;
