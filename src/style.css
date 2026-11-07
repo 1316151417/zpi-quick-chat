@@ -1,0 +1,196 @@
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #202020;
+  background: #fafafa;
+  color-scheme: light dark;
+  font-size: 14px;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+header {
+  height: 45px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px;
+  -webkit-app-region: drag;
+  border-bottom: 1px solid #00000009;
+}
+header strong {
+  font-size: 13px;
+}
+#model {
+  color: #999;
+  font-size: 11px;
+}
+.actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+button,
+.attach {
+  -webkit-app-region: no-drag;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 5px 9px;
+}
+button:hover,
+.attach:hover {
+  background: #8882;
+}
+.actions button {
+  font-size: 20px;
+  color: #777;
+  width: 29px;
+}
+main {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 14px 18px;
+  scrollbar-width: thin;
+}
+.empty {
+  color: #999;
+  text-align: center;
+  padding: 20px 0;
+}
+.message {
+  margin-bottom: 20px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.65;
+}
+.message.user {
+  margin-left: 40px;
+  background: #8881;
+  border-radius: 12px;
+  padding: 9px 13px;
+}
+.message.assistant {
+  padding: 0 3px;
+}
+.message .copy {
+  display: block;
+  font-size: 11px;
+  color: #999;
+  margin-top: 6px;
+}
+.message img,
+#images img {
+  max-width: 160px;
+  max-height: 120px;
+  border-radius: 6px;
+}
+#error {
+  color: #bb4b36;
+  background: #c6541010;
+  padding: 8px 18px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  max-height: 80px;
+  overflow: auto;
+}
+#composer {
+  margin: 0 12px 12px;
+  border: 1px solid #8883;
+  border-radius: 13px;
+  background: #fff;
+  padding: 10px;
+  flex-shrink: 0;
+}
+#composer:focus-within {
+  border-color: #8886;
+  box-shadow: 0 1px 5px #00000008;
+}
+textarea {
+  display: block;
+  width: 100%;
+  resize: none;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 1.5;
+  max-height: 150px;
+  min-height: 48px;
+}
+footer {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 5px;
+}
+footer span {
+  color: #aaa;
+  font-size: 11px;
+  flex: 1;
+}
+#send,
+#stop {
+  background: #202020;
+  color: white;
+  font-size: 12px;
+  padding: 6px 12px;
+}
+#images {
+  display: flex;
+  gap: 8px;
+  max-height: 95px;
+  overflow: auto;
+  padding: 0 15px;
+}
+#images > div {
+  position: relative;
+  margin-bottom: 8px;
+}
+#images img {
+  max-height: 80px;
+}
+#images button {
+  position: absolute;
+  top: 0;
+  right: 0;
+  background: #222b;
+  color: white;
+  padding: 0 4px;
+}
+button[hidden],
+[hidden] {
+  display: none !important;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color: #e6e6e6;
+    background: #202020;
+  }
+  header {
+    border-color: #ffffff0a;
+  }
+  #composer {
+    background: #282828;
+  }
+  #send,
+  #stop {
+    background: #e6e6e6;
+    color: #202020;
+  }
+  .message.user {
+    background: #ffffff0a;
+  }
+}
