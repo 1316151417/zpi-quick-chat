@@ -12,11 +12,12 @@ const waitFor = async (predicate: () => boolean) => {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 };
-async function fixture(options: { model?: string; failFirst?: boolean } = {}) {
+async function fixture(options: { model?: string; failFirst?: boolean; persistSession?: boolean } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "zpi-quick-chat-unit-")),
     api = await server(options);
   const chat = new Chat({ model: "deepseek", reasoning: "disable", apiKey: "synthetic" }, () => {}, {
     model: options.model ?? "test",
+    persistSession: options.persistSession,
     zpi: {
       agentDir: dir,
       providers: {
@@ -49,18 +50,20 @@ async function fixture(options: { model?: string; failFirst?: boolean } = {}) {
     },
   };
 }
-test("the packaged SDK drives streaming, in-memory multi-turn chat and reset", async () => {
-  const { dir, api, chat, close } = await fixture();
+test("the packaged SDK keeps multi-turn chat in memory even when persistence is overridden", async () => {
+  const { dir, api, chat, close } = await fixture({ persistSession: true });
   try {
     chat.send("Translate hello");
     await waitFor(() => !chat.snapshot().busy);
     assert.equal(chat.snapshot().messages.at(-1)?.text, "你好，世界");
     assert.equal(chat.snapshot().error, undefined);
+    assert.equal((await readdir(dir)).includes("sessions"), false);
     chat.send("Continue");
     await waitFor(() => !chat.snapshot().busy);
     assert.equal(chat.snapshot().messages.at(-1)?.text, "继续对话");
     assert.match(JSON.stringify(api.requests[1].messages), /Translate hello/);
     assert.equal(api.requests[0].tools, undefined);
+    assert.equal((await readdir(dir)).includes("sessions"), false);
     assert.throws(() => chat.send("", []), /请输入/);
     assert.throws(() => chat.send("x", [{ name: "bad", data: "!", mimeType: "image/png" }]), /图片/);
     await chat.reset();

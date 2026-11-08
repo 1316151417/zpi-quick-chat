@@ -1,6 +1,6 @@
 {
   "name": "@zpi-dev/quick-chat",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A small floating DeepSeek chat powered by @zpi-dev/agent-sdk",
   "type": "module",
   "bin": {
@@ -25,9 +25,12 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "@zpi-dev/agent-sdk": "0.1.61",
+    "@zpi-dev/agent-sdk": "file:vendor/zpi-dev-agent-sdk-0.1.62.tgz",
     "electron": "41.10.7"
   },
+  "bundleDependencies": [
+    "@zpi-dev/agent-sdk"
+  ],
   "devDependencies": {
     "@playwright/test": "1.63.0",
     "@types/node": "24.19.1",

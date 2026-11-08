@@ -36,7 +36,9 @@ zpi-quick-chat
 
 选择文字需要 macOS 辅助功能权限，截图使用系统截图权限。所有权限均随用户实际调用，由系统控制。Esc 或 Option+Space 隐藏窗口；CLI Ctrl+C 退出进程并释放快捷键。快捷键被占用时启动会明确报错。
 
-开发需要 Node.js 24、macOS 和 Xcode Command Line Tools（编译选区复制与焦点恢复助手）。发行包包含 arm64 原生产物，构建发布包需要使用 Apple Silicon Mac。SDK 依赖固定版本的 `@zpi-dev/agent-sdk`，更新时安装新的 npm 版本并提交锁文件。
+开发需要 Node.js 24、macOS 和 Xcode Command Line Tools（编译选区复制与焦点恢复助手）。发行包包含 arm64 原生产物，构建发布包需要使用 Apple Silicon Mac。
+
+当前引用 `vendor/zpi-dev-agent-sdk-0.1.62.tgz`，这是与 ZPI 本次源码一致的 SDK `0.1.62` 本地发布包，包含新版存储、上下文和任务控制接口；该版本尚未发布到 npm。压缩包与锁文件一并保留，`npm install` / `npm ci` 可复现这次依赖。应用压缩包通过 `bundleDependencies` 携带已安装的 SDK 及其依赖，安装时不依赖源码目录中的 vendor 路径。Quick Chat 始终设置 `persistSession: false`，多轮上下文只保留在进程内存中，不配置外部会话镜像。
 
 从源码启动：
 
@@ -46,7 +48,7 @@ npm run build
 npm start
 ```
 
-发布新版本时，先确认新 SDK 已经发布到 npm，再更新依赖和自己的版本：
+发布新版本时，先将对应版本的 SDK 发布到 npm，再将本地快照依赖切回正式 npm 版本、移除 `bundleDependencies` 和不再使用的 vendor 压缩包，并更新自己的版本：
 
 ```sh
 npm install @zpi-dev/agent-sdk@latest --save-exact
