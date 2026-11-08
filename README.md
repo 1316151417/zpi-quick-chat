@@ -46,6 +46,21 @@ npm run build
 npm start
 ```
 
+发布新版本时，先确认新 SDK 已经发布到 npm，再更新依赖和自己的版本：
+
+```sh
+npm install @zpi-dev/agent-sdk@latest --save-exact
+npm version patch --no-git-tag-version
+npm run check
+npm test
+npm run build
+npm run test:desktop
+# 提交并推送版本号、依赖和锁文件的改动
+npm publish --access=public
+```
+
+`prepack` 会自动构建发布产物。按 npm 提示完成浏览器认证后，使用 `npm view @zpi-dev/quick-chat version` 和 `npx @zpi-dev/quick-chat --version` 确认公开版本。
+
 ```sh
 npm run check
 npm test
