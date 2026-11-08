@@ -1,13 +1,17 @@
 # ZPI Quick Chat
 
-独立、轻量的 macOS 悬浮对话工具，通过 CLI 启动 Electron 进程，无需安装独立桌面应用。后端依赖 `@zpi-dev/agent-sdk`；前端是独立的 HTML、CSS、TypeScript，没有引入 ZPI 的前端包。
+独立、轻量的 macOS 悬浮对话工具，通过 npm 分发，由 CLI 启动 Electron 进程。后端依赖 `@zpi-dev/agent-sdk`；前端是独立的 HTML、CSS、TypeScript，没有引入 ZPI 的前端包。
+
+## 安装与运行
+
+推荐安装 Node.js 24，设置模型 API Key 后，通过 npx 直接运行：
 
 ```sh
 export DEEPSEEK_API_KEY='你的 API Key'
 npx @zpi-dev/quick-chat
 ```
 
-需要固定命令时可安装到全局：
+需要固定命令时，通过 npm 安装到全局后执行（同样需要先设置 `DEEPSEEK_API_KEY`）：
 
 ```sh
 npm install -g @zpi-dev/quick-chat
@@ -36,7 +40,13 @@ zpi-quick-chat
 
 选择文字需要 macOS 辅助功能权限，截图使用系统截图权限。所有权限均随用户实际调用，由系统控制。Esc 或 Option+Space 隐藏窗口；CLI Ctrl+C 退出进程并释放快捷键。快捷键被占用时启动会明确报错。
 
-开发需要 Node.js 24、macOS 和 Xcode Command Line Tools（编译选区复制与焦点恢复助手）。发行包包含 arm64 原生产物，构建发布包需要使用 Apple Silicon Mac。
+## 升级
+
+退出 Quick Chat 后，执行 `npx @zpi-dev/quick-chat@latest` 运行最新版。全局安装的用户重新执行 `npm install -g @zpi-dev/quick-chat@latest`，然后运行 `zpi-quick-chat`；仍需设置 `DEEPSEEK_API_KEY`。
+
+## 开发与 npm 发布
+
+开发需要 Node.js 24、macOS 和 Xcode Command Line Tools（编译选区复制与焦点恢复助手）。npm 包包含 arm64 原生产物，构建 npm 包需要使用 Apple Silicon Mac。
 
 当前依赖 npm 正式版本 `@zpi-dev/agent-sdk@0.1.63`，版本与锁文件一并保留，`npm install` / `npm ci` 可复现依赖。Quick Chat 始终设置 `persistSession: false`，多轮上下文只保留在进程内存中，不配置外部会话镜像。
 
