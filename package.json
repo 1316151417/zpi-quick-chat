@@ -25,12 +25,9 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "@zpi-dev/agent-sdk": "file:vendor/zpi-dev-agent-sdk-0.1.63.tgz",
+    "@zpi-dev/agent-sdk": "0.1.63",
     "electron": "41.10.7"
   },
-  "bundleDependencies": [
-    "@zpi-dev/agent-sdk"
-  ],
   "devDependencies": {
     "@playwright/test": "1.63.0",
     "@types/node": "24.19.1",
