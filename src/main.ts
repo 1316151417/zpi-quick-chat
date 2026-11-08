@@ -5,6 +5,7 @@ import {
   globalShortcut,
   ipcMain,
   nativeImage,
+  nativeTheme,
   screen,
   systemPreferences,
 } from "electron";
@@ -21,6 +22,7 @@ import { validateImages, validateImagePixels } from "./input.ts";
 
 const directory = dirname(fileURLToPath(import.meta.url));
 const config = readConfig(process.env);
+const windowBackground = () => (nativeTheme.shouldUseDarkColors ? "#202020" : "#fafafa");
 // Automated tests must supply an existing dedicated temp home. They never touch OS capture or shortcuts.
 const isolated = process.argv.includes("--isolated-test");
 if (isolated) {
@@ -59,7 +61,7 @@ async function start() {
     resizable: true,
     alwaysOnTop: true,
     skipTaskbar: true,
-    backgroundColor: "#fafafa",
+    backgroundColor: windowBackground(),
     webPreferences: {
       preload: join(directory, "preload.cjs"),
       contextIsolation: true,
@@ -68,6 +70,11 @@ async function start() {
       backgroundThrottling: !isolated,
     },
   });
+  const syncWindowBackground = () => {
+    if (!win.isDestroyed()) win.setBackgroundColor(windowBackground());
+  };
+  nativeTheme.on("updated", syncWindowBackground);
+  win.on("closed", () => nativeTheme.off("updated", syncWindowBackground));
   let restoreFocus: (() => void) | undefined;
   const activate = macQuickChatFocus(
     join(directory, "native"),
