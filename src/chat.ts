@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { query, type Options, type Query, type SDKMessage, type SDKUserMessage } from "zpi-agent-sdk";
+import { query, type Options, type Query, type SDKMessage, type SDKUserMessage } from "@zpi-dev/agent-sdk";
 import type { Config } from "./config.ts";
 import { inputLimits, validateImages, validateText } from "./input.ts";
 import type { ChatUpdate, ImageInput, Snapshot } from "./types.ts";

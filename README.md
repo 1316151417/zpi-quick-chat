@@ -1,22 +1,20 @@
 # ZPI Quick Chat
 
-独立、轻量的 macOS 悬浮对话工具，通过 CLI 启动 Electron 进程，无需安装独立桌面应用。后端依赖 `zpi-agent-sdk`；前端是独立的 HTML、CSS、TypeScript，没有引入 ZPI 的前端包。
+独立、轻量的 macOS 悬浮对话工具，通过 CLI 启动 Electron 进程，无需安装独立桌面应用。后端依赖 `@zpi-dev/agent-sdk`；前端是独立的 HTML、CSS、TypeScript，没有引入 ZPI 的前端包。
 
 ```sh
-cd /Users/jiezhou/VSCodeProjects/zpi-quick-chat
-npm install
-npm run build
 export DEEPSEEK_API_KEY='你的 API Key'
-npx --yes --package . zpi-quick-chat
+npx @zpi-dev/quick-chat
 ```
 
-也可在任何目录运行：
+需要固定命令时可安装到全局：
 
 ```sh
-DEEPSEEK_API_KEY='你的 API Key' npx --yes --package /Users/jiezhou/VSCodeProjects/zpi-quick-chat zpi-quick-chat
+npm install -g @zpi-dev/quick-chat
+zpi-quick-chat
 ```
 
-仓库尚未发布到 npm，暂时使用本地目录或 `npm pack` 生成的压缩包。发布后可直接 `npx zpi-quick-chat`。打包内置 SDK 及其依赖，消费方不需要 ZPI 仓库。
+需要 Node.js 24 和 Apple Silicon Mac（macOS arm64）。SDK 从 npm 安装，使用者不需要 ZPI 仓库。安装时需要允许 Electron 的安装脚本下载运行环境。
 
 | 环境变量 | 默认值 | 说明 |
 | --- | --- | --- |
@@ -38,7 +36,15 @@ DEEPSEEK_API_KEY='你的 API Key' npx --yes --package /Users/jiezhou/VSCodeProje
 
 选择文字需要 macOS 辅助功能权限，截图使用系统截图权限。所有权限均随用户实际调用，由系统控制。Esc 或 Option+Space 隐藏窗口；CLI Ctrl+C 退出进程并释放快捷键。快捷键被占用时启动会明确报错。
 
-开发需要 Node.js 24、macOS 和 Xcode Command Line Tools（编译选区复制与焦点恢复助手）。发行包包含当前架构的 native 产物。SDK 本地版本来自 `vendor/zpi-agent-sdk-0.1.60.tgz`，更新时需从 ZPI 工作区重新构建、打包并运行 `npm install` 更新锁文件。
+开发需要 Node.js 24、macOS 和 Xcode Command Line Tools（编译选区复制与焦点恢复助手）。发行包包含 arm64 原生产物，构建发布包需要使用 Apple Silicon Mac。SDK 依赖固定版本的 `@zpi-dev/agent-sdk`，更新时安装新的 npm 版本并提交锁文件。
+
+从源码启动：
+
+```sh
+npm install
+npm run build
+npm start
+```
 
 ```sh
 npm run check

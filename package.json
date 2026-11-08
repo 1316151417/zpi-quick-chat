@@ -1,7 +1,7 @@
 {
-  "name": "zpi-quick-chat",
-  "version": "0.1.0",
-  "description": "A small floating DeepSeek chat powered by zpi-agent-sdk",
+  "name": "@zpi-dev/quick-chat",
+  "version": "0.1.1",
+  "description": "A small floating DeepSeek chat powered by @zpi-dev/agent-sdk",
   "type": "module",
   "bin": {
     "zpi-quick-chat": "bin/cli.mjs"
@@ -9,7 +9,6 @@
   "files": [
     "bin",
     "dist",
-    "vendor",
     "README.md",
     "NOTICE",
     "docs"
@@ -26,8 +25,8 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "electron": "41.10.7",
-    "zpi-agent-sdk": "file:vendor/zpi-agent-sdk-0.1.60.tgz"
+    "@zpi-dev/agent-sdk": "0.1.60",
+    "electron": "41.10.7"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",
@@ -36,7 +35,18 @@
     "tsx": "4.23.15",
     "typescript": "7.0.2"
   },
-  "bundleDependencies": [
-    "zpi-agent-sdk"
-  ]
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/1316151417/zpi-quick-chat.git"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
 }

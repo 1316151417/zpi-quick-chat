@@ -1,8 +1,18 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { readConfig } from "../dist/config.js";
+const args = process.argv.slice(2);
+if (args.includes("--version") || args.includes("-v")) {
+  console.log(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version);
+  process.exit(0);
+}
+if (args.includes("--help") || args.includes("-h")) {
+  console.log("Usage: zpi-quick-chat [--version] [--help]\n\nStart ZPI Quick Chat. Set DEEPSEEK_API_KEY first.");
+  process.exit(0);
+}
+const { readConfig } = await import("../dist/config.js");
 try {
   readConfig(process.env);
 } catch (error) {
@@ -18,7 +28,7 @@ const env = { ...process.env };
 delete env.ELECTRON_RUN_AS_NODE;
 const child = spawn(
   require("electron"),
-  [fileURLToPath(new URL("../dist/main.js", import.meta.url))],
+  [fileURLToPath(new URL("../dist/main.js", import.meta.url)), ...args],
   { env, stdio: "inherit" },
 );
 let stopping = false;
