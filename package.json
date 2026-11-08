@@ -25,7 +25,7 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "@zpi-dev/agent-sdk": "0.1.60",
+    "@zpi-dev/agent-sdk": "0.1.61",
     "electron": "41.10.7"
   },
   "devDependencies": {
