@@ -12,7 +12,7 @@ const waitFor = async (predicate: () => boolean) => {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 };
-async function fixture(options: { model?: string; failFirst?: boolean; persistSession?: boolean } = {}) {
+async function fixture(options: { model?: string; failFirst?: boolean; persistSession?: boolean; hold?: boolean } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "zpi-quick-chat-unit-")),
     api = await server(options);
   const chat = new Chat({ model: "deepseek", reasoning: "disable", apiKey: "synthetic" }, () => {}, {
@@ -114,6 +114,53 @@ test("a normal SDK error result remains continuable with the same context", asyn
     assert.equal(f.chat.snapshot().error, undefined);
     assert.match(JSON.stringify(f.api.requests.at(-1)?.messages), /Rejected question/);
     assert.equal(f.chat.snapshot().messages.at(-1)?.text, "继续对话");
+  } finally {
+    await f.close();
+  }
+});
+
+test("reset publishes synchronously and late cleanup cannot clear a new conversation", async () => {
+  const f = await fixture();
+  const cleanup = Promise.withResolvers<void>();
+  try {
+    f.chat.send("Old question");
+    await waitFor(() => !f.chat.snapshot().busy);
+    f.chat["loop"] = cleanup.promise;
+    const resetting = f.chat.reset();
+    // No microtask or old-query cleanup may precede the new empty snapshot.
+    assert.equal(f.chat.snapshot().messages.length, 0);
+    assert.equal(f.chat.snapshot().generation, 1);
+    assert.equal(f.chat.snapshot().busy, false);
+    f.chat.send("New question");
+    cleanup.resolve();
+    await resetting;
+    await waitFor(() => !f.chat.snapshot().busy);
+    assert.equal(f.chat.snapshot().messages[0].text, "New question");
+    assert.doesNotMatch(JSON.stringify(f.api.requests.at(-1)?.messages), /Old question/);
+  } finally {
+    cleanup.resolve();
+    await f.close();
+  }
+});
+
+test("streaming can stop, resume, and reset without leaking old deltas", async () => {
+  const f = await fixture({ hold: true });
+  try {
+    f.chat.send("First question");
+    await waitFor(() => f.chat.snapshot().messages.at(-1)?.text === "你好，世界");
+    assert.equal(f.chat.snapshot().busy, true);
+    await f.chat.stop();
+    await waitFor(() => !f.chat.snapshot().busy);
+    f.chat.send("Continue after stop");
+    await waitFor(() => f.chat.snapshot().messages.at(-1)?.text === "继续对话");
+    const resetting = f.chat.reset();
+    assert.equal(f.chat.snapshot().messages.length, 0);
+    f.chat.send("Fresh question");
+    await resetting;
+    await waitFor(() => f.chat.snapshot().messages.at(-1)?.text === "继续对话");
+    assert.equal(f.chat.snapshot().messages.length, 2);
+    assert.equal(f.chat.snapshot().messages[0].text, "Fresh question");
+    assert.doesNotMatch(JSON.stringify(f.api.requests.at(-1)?.messages), /First question|Continue after stop/);
   } finally {
     await f.close();
   }

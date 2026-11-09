@@ -92,3 +92,29 @@ test("current capture failures still reach the caller", async () => {
   await assert.rejects(capture.invoke("selection"), /native failure/);
   capture.dispose();
 });
+test("a new session can capture immediately while the old selection is still pending", async () => {
+  let session = "one",
+    oldSignal: AbortSignal | undefined;
+  const pending = Promise.withResolvers<{ text: string }>();
+  const drafts: string[] = [];
+  const capture = new QuickChatCapture({
+    sessionId: () => session,
+    hide: () => {},
+    read: (kind, signal) => {
+      if (kind === "selection") {
+        oldSignal = signal;
+        return pending.promise;
+      }
+      return { text: "New clipboard" };
+    },
+    open: async (draft) => { drafts.push(draft.text!); },
+  });
+  const old = capture.invoke("selection");
+  session = "two";
+  await capture.invoke("clipboard");
+  assert.equal(oldSignal?.aborted, true);
+  pending.resolve({ text: "Old selection" });
+  await old;
+  assert.deepEqual(drafts, ["New clipboard"]);
+  capture.dispose();
+});

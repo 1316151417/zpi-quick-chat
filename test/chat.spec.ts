@@ -9,7 +9,7 @@ import { server } from "./server.ts";
 const require = createRequire(import.meta.url);
 test("hidden isolated window chats through SDK, resets and exposes no desktop settings", async () => {
   const dir = await mkdtemp(join(tmpdir(), "zpi-quick-chat-test-")),
-    api = await server();
+    api = await server({ delayMs: 40 });
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined;
   try {
     const source = require("electron") as string,
@@ -52,6 +52,60 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
     page.on("pageerror", (error) => errors.push(error.message));
     await page.waitForLoadState("domcontentloaded");
     const input = page.getByLabel("输入内容", { exact: true });
+    const size = () => application!.evaluate(({ BrowserWindow }) => {
+      const { width, height } = BrowserWindow.getAllWindows()[0].getBounds();
+      return { width, height };
+    });
+    await expect.poll(size).toEqual({ width: 360, height: 44 });
+    await expect(page.locator("body")).not.toHaveClass("expanded");
+    expect(await input.evaluate((node) => node.getBoundingClientRect().height)).toBe(24);
+    const pin = page.getByRole("button", { name: "固定窗口", exact: true });
+    await expect(pin).toBeHidden();
+    // Old versions persisted this preference; it must no longer auto-pin either mode.
+    await page.evaluate(() => localStorage.setItem("pinned", "true"));
+    await page.reload();
+    await expect(pin).toBeHidden();
+    await expect(page.locator("#pin")).toHaveAttribute("aria-pressed", "false");
+    const generation = await page.evaluate(() => new Promise<number>((resolve) => {
+      const off = window.quickChat.onSnapshot((snapshot) => { off(); resolve(snapshot.generation); });
+      void window.quickChat.invoke("snapshot");
+    }));
+    await page.evaluate((generation) => window.quickChat.invoke("pin", { generation, pinned: true }), generation);
+    await expect(page.locator("#pin")).toHaveAttribute("aria-pressed", "false");
+    expect(await page.locator("#composer").evaluate((node) => getComputedStyle(node).paddingRight)).toBe("8px");
+    await page.screenshot({ path: test.info().outputPath("compact.png") });
+    await page.emulateMedia({ colorScheme: "dark" });
+    await expect(page.locator("#composer")).toHaveCSS("background-color", "rgb(43, 43, 43)");
+    await page.screenshot({ path: test.info().outputPath("compact-dark.png") });
+    await page.emulateMedia({ colorScheme: "light" });
+    await input.fill("一\n二\n三");
+    await expect.poll(size).toEqual({ width: 360, height: 88 });
+    await input.fill("多行内容\n".repeat(30));
+    await expect.poll(size).toEqual({ width: 360, height: 184 });
+    await input.fill("");
+    await expect.poll(size).toEqual({ width: 360, height: 44 });
+    await input.fill("已有草稿");
+    await application.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0].webContents.send("quick-chat:draft", { text: "带入内容🙂" });
+    });
+    await expect(input).toHaveValue("已有草稿\n带入内容🙂");
+    expect(await input.evaluate((node: HTMLTextAreaElement) => ({
+      start: node.selectionStart, end: node.selectionEnd, length: node.value.length,
+    }))).toEqual({ start: 11, end: 11, length: 11 });
+    await input.press("x");
+    await expect(input).toHaveValue("已有草稿\n带入内容🙂x");
+    await input.fill("输入法候选");
+    await input.evaluate((node) => {
+      node.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+      node.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      node.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+      node.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
+      for (const modifiers of [{ repeat: true }, { isComposing: true }, { keyCode: 229 }, { metaKey: true }])
+        node.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true, ...modifiers }));
+    });
+    expect(api.requests).toHaveLength(0);
+    await expect(page.locator(".message")).toHaveCount(0);
+    await input.fill("");
     const pasteImages = (files: { name: string; mimeType: string; buffer: Buffer }[]) =>
       page.evaluate(
         (files) => {
@@ -77,15 +131,51 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
       },
     ]);
     await expect(page.locator("#images img")).toHaveCount(1);
+    await expect.poll(size).toEqual({ width: 360, height: 100 });
+    await page.getByRole("button", { name: "预览 one.png", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "图片预览" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: "图片预览" })).toBeHidden();
     await input.fill("Translate hello");
-    await input.press("Enter");
+    await input.evaluate((node) => {
+      for (let index = 0; index < 2; index++)
+        node.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    });
+    await expect(page.locator(".assistant .message-text")).toContainText("你");
+    await expect(page.locator("#stop")).toBeVisible();
     await expect(page.locator(".assistant")).toContainText("你好，世界");
     await expect(page.getByRole("button", { name: "复制" })).toBeVisible();
     await expect(page.locator("#stop")).toBeHidden();
+    expect(api.requests).toHaveLength(1);
+    await expect.poll(size).toEqual({ width: 660, height: 560 });
+    await expect(pin).toBeVisible();
+    await expect(pin).toHaveAttribute("aria-pressed", "false");
+    await pin.click();
+    await expect(pin).toHaveAttribute("aria-pressed", "true");
+    await pin.click();
+    await expect(pin).toHaveAttribute("aria-pressed", "false");
+    await pin.click();
+    await expect(pin).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator("#error")).toBeHidden();
+    await page.locator(".assistant").evaluate((node) => node.setAttribute("data-preserved", "true"));
+    await page.screenshot({ path: test.info().outputPath("expanded.png") });
+    await page.locator(".assistant .message-text").evaluate((node) => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      window.getSelection()!.removeAllRanges();
+      window.getSelection()!.addRange(range);
+    });
+    await page.evaluate(() => window.quickChat.invoke("snapshot"));
+    expect(await page.evaluate(() => window.getSelection()!.toString())).toBe("你好，世界");
+    await input.fill("多行输入\n".repeat(30));
+    expect(await input.evaluate((node) => node.getBoundingClientRect().height)).toBe(160);
+    expect(await size()).toEqual({ width: 660, height: 560 });
     await input.fill("Continue");
     await input.press("Enter");
     await expect(page.locator(".assistant").last()).toContainText("继续对话");
+    await expect(page.locator(".assistant").first()).toHaveAttribute("data-preserved", "true");
     expect(JSON.stringify(api.requests[0].messages)).toContain("image_url");
+    expect(JSON.stringify(api.requests[0].messages)).toContain("常规问题不超过3句话");
     expect(JSON.stringify(api.requests[1].messages)).toContain("Translate hello");
     expect(
       await page.evaluate(() => ({
@@ -101,6 +191,9 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
     expect(native).toEqual({ visible: false, registered: false });
     await page.getByTitle("新建对话 ⌥⇧Space").click();
     await expect(page.locator(".message")).toHaveCount(0);
+    await expect(pin).toBeHidden();
+    await expect(page.locator("#pin")).toHaveAttribute("aria-pressed", "false");
+    expect(await page.evaluate((generation) => window.quickChat.invoke("pin", { generation, pinned: true }), generation)).toMatchObject({ ok: false });
     // Hold FileReader completion so resets and concurrent selections exercise the real renderer.
     await page.evaluate(() => {
       const readers: FileReader[] = [];
@@ -138,6 +231,10 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
       );
     await pasteImages([file("old-a.png"), file("old-b.png")]);
     await expect.poll(readerCount).toBe(1);
+    await input.fill("图片读取完才能发送");
+    await input.press("Enter");
+    await expect(page.locator(".message")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "发送", exact: true })).toBeDisabled();
     await page.evaluate(() => window.quickChat.invoke("reset"));
     await releaseImage(0);
     await expect(page.locator("#images img")).toHaveCount(0);

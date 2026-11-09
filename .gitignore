@@ -4,3 +4,4 @@ dist/
 .env
 playwright-report/
 test-results/
+.zread/

@@ -5,7 +5,6 @@ import {
   globalShortcut,
   ipcMain,
   nativeImage,
-  nativeTheme,
   screen,
   systemPreferences,
 } from "electron";
@@ -22,7 +21,6 @@ import { validateImages, validateImagePixels } from "./input.ts";
 
 const directory = dirname(fileURLToPath(import.meta.url));
 const config = readConfig(process.env);
-const windowBackground = () => (nativeTheme.shouldUseDarkColors ? "#202020" : "#fafafa");
 // Automated tests must supply an existing dedicated temp home. They never touch OS capture or shortcuts.
 const isolated = process.argv.includes("--isolated-test");
 if (isolated) {
@@ -48,34 +46,68 @@ else
 async function start() {
   await app.whenReady();
   if (!isolated) app.dock?.hide();
+  let expanded = false,
+    keepExpanded = false,
+    hasMessages = false,
+    occupied = false,
+    compactHeight = 44,
+    pinned = false;
+  const bounds = (display: Electron.Display, width: number, height: number) => {
+    const area = display.workArea,
+      bottomInset = Math.max(0, display.bounds.y + display.bounds.height - area.y - area.height),
+      gap = bottomInset > 4 ? bottomInset : 64;
+    width = Math.min(width, area.width);
+    height = Math.min(height, area.height);
+    return {
+      width,
+      height,
+      x: Math.round(Math.max(area.x, Math.min(display.bounds.x + (display.bounds.width - width) / 2, area.x + area.width - width))),
+      y: Math.round(Math.max(area.y, area.y + area.height - gap - height)),
+    };
+  };
   const win = new BrowserWindow({
-    width: 640,
-    height: 300,
-    minWidth: 440,
-    minHeight: 220,
+    ...bounds(screen.getDisplayNearestPoint(screen.getCursorScreenPoint()), 360, compactHeight),
+    minWidth: 360,
+    minHeight: 44,
     maxWidth: 1100,
     show: false,
     focusable: !isolated,
     frame: false,
-    roundedCorners: true,
-    resizable: true,
+    // CSS draws the capsule/dialog corners; native corners add a second outline on macOS.
+    roundedCorners: false,
+    transparent: true,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    ...(process.platform === "darwin" ? { type: "panel", hiddenInMissionControl: true } : {}),
     alwaysOnTop: true,
     skipTaskbar: true,
-    backgroundColor: windowBackground(),
+    backgroundColor: "#00000000",
     webPreferences: {
       preload: join(directory, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      backgroundThrottling: !isolated,
+      backgroundThrottling: false,
     },
   });
-  const syncWindowBackground = () => {
-    if (!win.isDestroyed()) win.setBackgroundColor(windowBackground());
-  };
-  nativeTheme.on("updated", syncWindowBackground);
-  win.on("closed", () => nativeTheme.off("updated", syncWindowBackground));
   let restoreFocus: (() => void) | undefined;
+  const layout = (nextExpanded: boolean, height = compactHeight) => {
+    compactHeight = height;
+    const changed = expanded !== nextExpanded;
+    expanded = nextExpanded;
+    if (!expanded) pinned = false;
+    if (!changed && expanded) return;
+    const current = win.getBounds(),
+      display = screen.getDisplayMatching(current),
+      next = bounds(display, expanded ? 660 : 360, expanded ? 560 : compactHeight);
+    if (changed) {
+      win.setMinimumSize(Math.min(expanded ? 440 : 360, next.width), Math.min(expanded ? 360 : 44, next.height));
+    }
+    if (current.x !== next.x || current.y !== next.y || current.width !== next.width || current.height !== next.height)
+      win.setBounds(next);
+  };
   const activate = macQuickChatFocus(
     join(directory, "native"),
     () => app.focus({ steal: true }),
@@ -83,16 +115,23 @@ async function start() {
   );
   const show = () => {
     if (isolated || win.isDestroyed()) return;
-    if (!win.isVisible()) {
-      const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea,
-        bounds = win.getBounds();
-      win.setPosition(
-        Math.round(area.x + (area.width - bounds.width) / 2),
-        Math.round(area.y + area.height * 0.22),
-      );
+    if (!win.isVisible() && keepExpanded && !hasMessages && !occupied) {
+      keepExpanded = false;
+      layout(false);
+      win.webContents.send("quick-chat:snapshot", { ...chat.snapshot(), expanded, pinned });
     }
-    if (!win.isFocused()) restoreFocus = activate();
+    if (!win.isVisible() || !win.isFocused()) {
+      const current = win.getBounds(),
+        display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()),
+        next = bounds(display, expanded ? 660 : 360, expanded ? 560 : compactHeight);
+      if (next.width !== current.width || next.height !== current.height)
+        win.setMinimumSize(Math.min(expanded ? 440 : 360, next.width), Math.min(expanded ? 360 : 44, next.height));
+      if (current.x !== next.x || current.y !== next.y || current.width !== next.width || current.height !== next.height)
+        win.setBounds(next);
+    }
+    const needsFocus = !win.isFocused();
     win.show();
+    if (needsFocus) restoreFocus = activate() ?? restoreFocus;
     win.focus();
   };
   const hide = () => {
@@ -100,6 +139,14 @@ async function start() {
     restoreFocus?.();
     restoreFocus = undefined;
   };
+  win.on("blur", () => {
+    // Cocoa may deliver the previous hide's blur during a new synchronous show.
+    queueMicrotask(() => {
+      if (win.isDestroyed() || win.isFocused()) return;
+      restoreFocus = undefined;
+      if ((!expanded || !pinned) && win.isVisible()) hide();
+    });
+  });
   let testOptions = {};
   if (isolated && process.env.ZPI_QUICK_CHAT_TEST_API) {
     const url = new URL(process.env.ZPI_QUICK_CHAT_TEST_API);
@@ -132,8 +179,14 @@ async function start() {
   const chat = new Chat(
     config,
     (update) => {
-      if (!win.isDestroyed())
-        win.webContents.send("type" in update ? "quick-chat:text" : "quick-chat:snapshot", update);
+      if (!win.isDestroyed()) {
+        if ("type" in update) win.webContents.send("quick-chat:text", update);
+        else {
+          hasMessages = update.messages.length > 0;
+          layout(hasMessages || keepExpanded);
+          win.webContents.send("quick-chat:snapshot", { ...update, expanded, pinned });
+        }
+      }
     },
     testOptions,
   );
@@ -158,8 +211,12 @@ async function start() {
       show();
       win.webContents.send("quick-chat:draft", { error: error.message });
     });
-  const reset = async () => {
-    await chat.reset();
+  const reset = () => {
+    keepExpanded = expanded && win.isVisible();
+    pinned = false;
+    occupied = false;
+    compactHeight = 44;
+    void chat.reset().catch((error) => console.error("Conversation cleanup:", error));
     show();
   };
   ipcMain.handle("quick-chat:action", async (event, action: unknown, input: unknown) => {
@@ -188,8 +245,16 @@ async function start() {
           await chat.stop();
           break;
         case "reset":
-          await reset();
+          reset();
           break;
+        case "pin": {
+          const value = input as { generation?: number; pinned?: boolean } | null;
+          if (!value || typeof value.pinned !== "boolean") throw new Error("Invalid pin state");
+          if (value.generation !== chat.generation) throw new Error("会话已切换，请重试");
+          pinned = expanded && value.pinned;
+          win.webContents.send("quick-chat:snapshot", { ...chat.snapshot(), expanded, pinned });
+          break;
+        }
         case "hide":
           hide();
           break;
@@ -197,7 +262,7 @@ async function start() {
           app.quit();
           break;
         case "snapshot":
-          win.webContents.send("quick-chat:snapshot", chat.snapshot());
+          win.webContents.send("quick-chat:snapshot", { ...chat.snapshot(), expanded, pinned });
           break;
         case "copy":
           if (isolated) throw new Error("OS clipboard access is disabled in tests");
@@ -206,13 +271,13 @@ async function start() {
           clipboard.writeText(input);
           break;
         case "resize": {
-          if (isolated) break;
-          if (typeof input !== "number" || !Number.isFinite(input)) throw new Error("Invalid height");
-          const area = screen.getDisplayMatching(win.getBounds()).workArea;
-          win.setSize(
-            win.getBounds().width,
-            Math.max(220, Math.min(Math.ceil(input), Math.floor(area.height * 0.8))),
-          );
+          const value = input as { generation?: number; height?: number; occupied?: boolean } | null;
+          if (!value || typeof value.height !== "number" || !Number.isFinite(value.height) || typeof value.occupied !== "boolean")
+            throw new Error("Invalid height");
+          if (value.generation === chat.generation) {
+            occupied = value.occupied;
+            if (!expanded) layout(false, Math.max(44, Math.min(Math.ceil(value.height), 320)));
+          }
           break;
         }
         default:
@@ -250,13 +315,8 @@ async function start() {
   await win.loadFile(join(directory, "index.html"));
   if (!isolated) {
     const bindings: [string, () => void][] = [
-      ["Alt+Space", () => (win.isVisible() && win.isFocused() ? hide() : show())],
-      [
-        "Alt+Shift+Space",
-        () => {
-          void reset();
-        },
-      ],
+      ["Alt+Space", () => (win.isVisible() ? hide() : show())],
+      ["Alt+Shift+Space", reset],
       ["Alt+Shift+C", () => doCapture("selection")],
       ["Alt+Shift+V", () => doCapture("clipboard")],
       ["Alt+Shift+A", () => doCapture("screenshot")],

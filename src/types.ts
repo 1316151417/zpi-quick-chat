@@ -15,6 +15,8 @@ export interface ChatMessage {
   images?: ImageInput[];
 }
 export interface Snapshot {
+  expanded?: boolean;
+  pinned?: boolean;
   generation: number;
   messages: ChatMessage[];
   busy: boolean;
@@ -28,7 +30,7 @@ export interface TextUpdate {
   delta: string;
 }
 export type ChatUpdate = Snapshot | ({ type: "text" } & TextUpdate);
-export type Action = "send" | "stop" | "reset" | "hide" | "quit" | "snapshot" | "resize" | "copy";
+export type Action = "send" | "stop" | "reset" | "hide" | "quit" | "snapshot" | "resize" | "copy" | "pin";
 export type Reply = { ok: true } | { ok: false; error: string };
 export interface Bridge {
   invoke(action: Action, input?: unknown): Promise<Reply>;

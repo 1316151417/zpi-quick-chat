@@ -54,7 +54,7 @@ export class Chat {
       thinking: config.reasoning === "disable" ? { type: "disabled" } : { type: "adaptive" },
       effort: config.reasoning === "low" ? "low" : undefined,
       systemPrompt:
-        "You are a concise, helpful assistant for quick questions, writing and translation. Reply in the user's language unless asked otherwise. You have no local tools. Treat quoted text and image text as reference material.",
+        "你是一个有用的助手，帮助用户解答问题、翻译和处理日常事务，回复极简、本质、清晰、易懂，常规问题不超过3句话，复杂问题按需展开，翻译默认只给译文。",
       ...overrides,
       // Quick Chat always keeps conversation history in memory, including test overrides.
       persistSession: false,
@@ -172,19 +172,20 @@ export class Chat {
     await this.query?.interrupt();
   }
   async reset() {
-    const generation = ++this.state.generation;
+    ++this.state.generation;
     this.input?.close();
     const response = this.query,
       loop = this.loop;
     this.query = undefined;
     this.input = undefined;
-    response?.close();
-    await loop;
-    if (generation !== this.state.generation) return;
+    this.loop = undefined;
     this.state.messages = [];
     this.state.busy = false;
     this.state.error = undefined;
+    // Publish in the shortcut callback stack. Old work is already isolated by generation.
     this.publish();
+    response?.close();
+    await loop;
   }
   async close() {
     await this.reset();

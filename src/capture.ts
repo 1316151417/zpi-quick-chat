@@ -13,7 +13,7 @@ interface Options {
 
 /** Capture before taking focus. One active capture; repeats join without duplicating its contents. */
 export class QuickChatCapture {
-  private pending?: { abort: AbortController; promise: Promise<void> };
+  private pending?: { sessionId: string; abort: AbortController; promise: Promise<void> };
   private disposed = false;
   private readonly options: Options;
   constructor(options: Options) {
@@ -21,9 +21,10 @@ export class QuickChatCapture {
   }
   invoke(kind: QuickChatCaptureKind): Promise<void> {
     if (this.disposed) return Promise.resolve();
-    if (this.pending) return this.pending.promise.catch(() => {});
-    const abort = new AbortController();
     const sessionId = this.options.sessionId();
+    if (this.pending?.sessionId === sessionId) return this.pending.promise.catch(() => {});
+    this.pending?.abort.abort();
+    const abort = new AbortController();
     const current = () =>
       !this.disposed && !abort.signal.aborted && sessionId === this.options.sessionId();
     const deliver = (input: QuickChatDraftInput | undefined) => {
@@ -32,6 +33,7 @@ export class QuickChatCapture {
     };
     const completion = Promise.withResolvers<void>();
     const pending = {
+      sessionId,
       abort,
       promise: completion.promise
         .catch((error) => {
