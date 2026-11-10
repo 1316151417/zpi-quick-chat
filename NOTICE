@@ -1,3 +1,7 @@
+# Quick Chat transcript and Markdown
+
+Quick Chat transcript typography, work progress and folding, tool summaries, long user-message folding, answer source popovers, message times, and inline Lucide icons adapt the corresponding ZPI UI components and styles. The Apache-2.0 and Lucide notices below apply. Marked 18.2.0 is bundled in the renderer; its license is reproduced at the end of this file.
+
 # ZCode file manager and draft workspaces
 
 The review pane in `packages/desktop/src/renderer/ReviewPane.tsx`, `review-pane.css`, and the virtual review file list adapt ZCode commit `3c5b227649371507ddc4eb46ac5133afe6db1cab`: `GitPane.tsx`, `GitPaneChangeCard.tsx`, `components/ui/select.tsx`, and Chinese Git review labels. Code preview preferences in `packages/ui/src/code-preview.ts` adapt its `lib/codePreviewSettings.ts` and `lib/codePreviewPreferences.ts`. Git source comparisons follow its `services/src/git/repo/gitCliRepo.ts`. Apache-2.0 applies. ZPI reuses its own IPC and persisted turn snapshots.
@@ -1204,3 +1208,50 @@ These small public icons reproduce the user-reported missing source icons. Downl
 `sources.json` records the original URL, actual Content-Type, byte length and SHA-256. The first four are rejected by the former MIME/format gate; the JPEG was already shown correctly. Two additional screenshot samples cover a multi-frame ICO and WebP served as binary/octet-stream. Tests replay these response bytes through mock transport and the real bounded decoder, with no live requests.
 
 The logos and marks belong to their respective publishers. These files are regression test inputs only, not application UI assets.
+
+# Marked 18.2.0
+
+# License information
+
+## Contribution License Agreement
+
+If you contribute code to this project, you are implicitly allowing your code
+to be distributed under the MIT license. You are also implicitly verifying that
+all code is your original work. `</legalese>`
+
+## Marked
+
+Copyright (c) 2018+, MarkedJS (https://github.com/markedjs/)
+Copyright (c) 2011-2018, Christopher Jeffrey (https://github.com/chjj/)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+## Markdown
+
+Copyright © 2004, John Gruber
+http://daringfireball.net/
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+* Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+* Neither the name “Markdown” nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+
+This software is provided by the copyright holders and contributors “as is” and any express or implied warranties, including, but not limited to, the implied warranties of merchantability and fitness for a particular purpose are disclaimed. In no event shall the copyright owner or contributors be liable for any direct, indirect, incidental, special, exemplary, or consequential damages (including, but not limited to, procurement of substitute goods or services; loss of use, data, or profits; or business interruption) however caused and on any theory of liability, whether in contract, strict liability, or tort (including negligence or otherwise) arising in any way out of the use of this software, even if advised of the possibility of such damage.

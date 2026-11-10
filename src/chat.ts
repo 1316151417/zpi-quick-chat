@@ -1,8 +1,11 @@
 import { randomUUID } from "node:crypto";
+import { resolve } from "node:path";
+import { homedir } from "node:os";
 import { query, type Options, type Query, type SDKMessage, type SDKUserMessage } from "@zpi-dev/agent-sdk";
 import type { Config } from "./config.ts";
 import { inputLimits, validateImages, validateText } from "./input.ts";
-import type { ChatUpdate, ImageInput, Snapshot } from "./types.ts";
+import type { ChatUpdate, ImageInput, Snapshot, ToolOptions } from "./types.ts";
+import { webSources, webTools } from "./web.ts";
 
 class Inputs implements AsyncIterable<SDKUserMessage> {
   private values: SDKUserMessage[] = [];
@@ -34,19 +37,24 @@ export class Chat {
   private state: Snapshot;
   private notify: (state: ChatUpdate) => void;
   private options: Options;
+  private apiKey: string;
+  private roundPrefix = "";
+  private hasRoundText = false;
   constructor(config: Config, notify: (state: ChatUpdate) => void, overrides: Options = {}) {
     this.notify = notify;
+    this.apiKey = config.apiKey;
     this.state = {
       generation: 0,
       messages: [],
       busy: false,
       model: config.model,
       reasoning: config.reasoning,
+      tools: { web: false, bash: false },
+      cwd: resolve(overrides.cwd ?? homedir()),
     };
     this.options = {
       model: config.model,
       env: { DEEPSEEK_API_KEY: config.apiKey },
-      maxTurns: 1,
       zpi: { requestOptions: { maxTokens: 16384, timeoutMs: 120000, maxRetries: 0 } },
       tools: [],
       settingSources: [],
@@ -54,7 +62,7 @@ export class Chat {
       thinking: config.reasoning === "disable" ? { type: "disabled" } : { type: "adaptive" },
       effort: config.reasoning === "low" ? "low" : undefined,
       systemPrompt:
-        "你是一个有用的助手，帮助用户解答问题、翻译和处理日常事务，回复极简、本质、清晰、易懂，常规问题不超过3句话，复杂问题按需展开，翻译默认只给译文。",
+        "你是一个有用的助手，帮助用户完成任务。要求回复极简、本质、清晰、易懂。",
       ...overrides,
       // Quick Chat always keeps conversation history in memory, including test overrides.
       persistSession: false,
@@ -69,6 +77,13 @@ export class Chat {
   private publish() {
     this.notify(this.snapshot());
   }
+  configure(tools: ToolOptions) {
+    if (!tools || typeof tools.web !== "boolean" || typeof tools.bash !== "boolean")
+      throw new Error("无效的工具配置");
+    if (this.state.messages.length || this.query) throw new Error("会话工具已锁定，请新建对话后更改");
+    this.state.tools = { web: tools.web, bash: tools.bash };
+    this.publish();
+  }
   send(text: string, images: ImageInput[] = []) {
     if (!this.query && this.state.messages.length) throw new Error("会话已结束，请新建对话后再发送");
     if (this.state.busy) throw new Error("请等待回复完成，或先停止回复");
@@ -81,6 +96,7 @@ export class Chat {
         (total, message) =>
           total +
           Buffer.byteLength(message.text) +
+          (message.calls ?? []).reduce((size, call) => size + Buffer.byteLength(call.input) + Buffer.byteLength(call.output ?? ""), 0) +
           (message.images ?? []).reduce((size, image) => size + image.data.length, 0),
         0,
       );
@@ -88,7 +104,21 @@ export class Chat {
       throw new Error("会话内容较多，请新建对话后再发送");
     if (!this.query) {
       const input = new Inputs();
-      this.query = query({ prompt: input, options: this.options });
+      const { web, bash } = this.state.tools;
+      const customTools = web ? webTools(this.apiKey, this.options.zpi?.fetch) : [];
+      const names = [...customTools.map((tool) => tool.name), ...(bash ? ["Bash"] : [])];
+      this.query = query({ prompt: input, options: {
+        ...this.options,
+        cwd: this.state.cwd,
+        tools: names,
+        zpi: { ...this.options.zpi, customTools },
+        // Keep commands in the foreground so Stop/Reset own their entire lifetime.
+        canUseTool: async (name, value) => !names.includes(name)
+          ? { behavior: "deny", message: "本会话未启用此工具" }
+          : name === "Bash"
+            ? { behavior: "allow", updatedInput: { ...value, run_in_background: false, timeout: value.timeout ?? 60000 } }
+            : { behavior: "allow" },
+      } });
       this.input = input;
       const generation = this.state.generation,
         response = this.query;
@@ -97,7 +127,7 @@ export class Chat {
     const id = randomUUID();
     this.state.messages.push(
       { id, role: "user", text, images },
-      { id: randomUUID(), role: "assistant", text: "" },
+      { id: randomUUID(), role: "assistant", text: "", startedAt: Date.now() },
     );
     this.state.busy = true;
     this.state.error = undefined;
@@ -134,41 +164,83 @@ export class Chat {
         this.input = undefined;
         this.query = undefined;
         this.state.busy = false;
+        const assistant = this.state.messages.at(-1);
+        if (assistant?.role === "assistant" && !assistant.status) {
+          assistant.status = "error";
+          assistant.endedAt = Date.now();
+        }
         const reason =
           failure instanceof Error ? failure.message : failure === undefined ? "" : String(failure);
-        this.state.error = [reason, "会话已结束，请新建对话后再发送"].filter(Boolean).join("\n");
+        this.state.error = [reason || this.state.error, "会话已结束，请新建对话后再发送"].filter(Boolean).join("\n");
         this.publish();
       }
     }
   }
   private receive(message: SDKMessage) {
     const assistant = this.state.messages.at(-1);
+    if (assistant?.role !== "assistant") return;
+    if (message.type === "stream_event" && message.event.type === "message_start") {
+      this.roundPrefix = assistant.text;
+      this.hasRoundText = false;
+      assistant.answerAt = Date.now();
+    }
     if (
       message.type === "stream_event" &&
       message.event.type === "content_block_delta" &&
-      message.event.delta.type === "text_delta" &&
-      assistant?.role === "assistant"
+      message.event.delta.type === "text_delta"
     ) {
-      assistant.text += message.event.delta.text;
+      const delta = (!this.hasRoundText && this.roundPrefix ? "\n\n" : "") + message.event.delta.text;
+      assistant.text += delta;
+      this.hasRoundText ||= Boolean(message.event.delta.text);
       this.notify({
         type: "text",
         generation: this.state.generation,
         id: assistant.id,
-        delta: message.event.delta.text,
+        delta,
       });
-    } else if (message.type === "assistant" && assistant?.role === "assistant") {
+    } else if (message.type === "assistant") {
       const text = message.message.content
         .filter((block) => block.type === "text")
         .map((block) => block.text)
         .join("\n");
-      if (text) assistant.text = text;
+      assistant.text = [this.roundPrefix, text].filter(Boolean).join("\n\n");
+      const calls = message.message.content.filter((block) => block.type === "tool_use");
+      for (const call of calls) {
+        assistant.calls ??= [];
+        if (!assistant.calls.some((item) => item.id === call.id))
+          assistant.calls.push({
+            id: call.id, name: call.name,
+            offset: assistant.text.length,
+            input: String(call.input[call.name === "Bash" ? "command" : call.name === "web_search" ? "query" : "url"] ?? "").slice(0, 16000),
+          });
+      }
+      if (calls.length) this.publish();
+    } else if (message.type === "user" && Array.isArray(message.message.content)) {
+      for (const block of message.message.content) {
+        if (block.type !== "tool_result") continue;
+        const call = assistant.calls?.find((call) => call.id === block.tool_use_id);
+        if (!call) continue;
+        const output = typeof block.content === "string" ? block.content : block.content
+          .filter((item) => item.type === "text").map((item) => item.text).join("\n");
+        call.output = output.length > 16000 ? output.slice(0, 16000) + "\n[输出已截断]" : output;
+        call.error = block.is_error;
+        if (!call.error) call.sources = webSources(call.name, output);
+        this.publish();
+      }
     } else if (message.type === "result") {
       this.state.busy = false;
+      assistant.status ??= message.subtype === "success" ? "completed" : "error";
+      assistant.endedAt = Date.now();
+      for (const call of assistant.calls ?? []) {
+        if (call.output === undefined) { call.output = "执行已停止或未完成"; call.error = true; }
+      }
       if (message.subtype !== "success") this.state.error = message.errors.join("\n");
       this.publish();
     }
   }
   async stop() {
+    const assistant = this.state.messages.at(-1);
+    if (this.state.busy && assistant?.role === "assistant") assistant.status = "interrupted";
     await this.query?.interrupt();
   }
   async reset() {
@@ -182,6 +254,9 @@ export class Chat {
     this.state.messages = [];
     this.state.busy = false;
     this.state.error = undefined;
+    this.state.tools = { web: false, bash: false };
+    this.roundPrefix = "";
+    this.hasRoundText = false;
     // Publish in the shortcut callback stack. Old work is already isolated by generation.
     this.publish();
     response?.close();

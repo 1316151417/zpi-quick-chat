@@ -8,11 +8,36 @@ export interface ImageInput {
   data: string;
   mimeType: string;
 }
+export interface ToolOptions {
+  web: boolean;
+  bash: boolean;
+}
+export interface WebSource {
+  url: string;
+  title: string;
+  siteName: string;
+  excerpt?: string;
+  date?: string;
+}
+export interface ToolCall {
+  id: string;
+  name: string;
+  input: string;
+  offset: number;
+  output?: string;
+  error?: boolean;
+  sources?: WebSource[];
+}
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   text: string;
   images?: ImageInput[];
+  calls?: ToolCall[];
+  startedAt?: number;
+  answerAt?: number;
+  endedAt?: number;
+  status?: "completed" | "interrupted" | "error";
 }
 export interface Snapshot {
   expanded?: boolean;
@@ -23,6 +48,8 @@ export interface Snapshot {
   error?: string;
   model: string;
   reasoning: string;
+  tools: ToolOptions;
+  cwd: string;
 }
 export interface TextUpdate {
   generation: number;
@@ -30,7 +57,7 @@ export interface TextUpdate {
   delta: string;
 }
 export type ChatUpdate = Snapshot | ({ type: "text" } & TextUpdate);
-export type Action = "send" | "stop" | "reset" | "hide" | "quit" | "snapshot" | "resize" | "copy" | "pin" | "preview";
+export type Action = "send" | "stop" | "reset" | "hide" | "quit" | "snapshot" | "resize" | "copy" | "pin" | "preview" | "tools" | "open-url";
 export type Reply = { ok: true } | { ok: false; error: string };
 export interface Bridge {
   invoke(action: Action, input?: unknown): Promise<Reply>;

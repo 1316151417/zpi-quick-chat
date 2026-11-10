@@ -6,6 +6,7 @@ import {
   ipcMain,
   nativeImage,
   screen,
+  shell,
   systemPreferences,
 } from "electron";
 import { dirname, isAbsolute, join } from "node:path";
@@ -16,7 +17,8 @@ import { readConfig } from "./config.ts";
 import { QuickChatCapture } from "./capture.ts";
 import { macQuickChatCapture } from "./mac-capture.ts";
 import { macQuickChatFocus } from "./focus.ts";
-import type { ImageInput } from "./types.ts";
+import type { ImageInput, ToolOptions } from "./types.ts";
+import { publicWebUrl } from "./web.ts";
 import { validateImages, validateImagePixels } from "./input.ts";
 
 const directory = dirname(fileURLToPath(import.meta.url));
@@ -156,8 +158,16 @@ async function start() {
     if (url.hostname !== "127.0.0.1" || url.protocol !== "http:")
       throw new Error("Tests require a loopback API");
     testOptions = {
+      cwd: process.env.ZPI_QUICK_CHAT_TEST_HOME!,
       model: "test",
       zpi: {
+        fetch: (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+          const target = new URL(input instanceof Request ? input.url : String(input));
+          if (target.origin === "https://api.deepseek.com" && /^\/v1\/tools\/(search|fetch)$/.test(target.pathname))
+            return fetch(new URL(target.pathname, url.origin), init);
+          if (target.origin !== url.origin) throw new Error("External network access is disabled in tests");
+          return fetch(input, init);
+        },
         agentDir: join(process.env.ZPI_QUICK_CHAT_TEST_HOME!, "sdk"),
         providers: {
           test: {
@@ -228,6 +238,12 @@ async function start() {
       throw new Error("Untrusted sender");
     try {
       switch (action) {
+        case "tools": {
+          const value = input as { generation?: number; tools?: ToolOptions } | null;
+          if (!value || value.generation !== chat.generation) throw new Error("会话已切换，请重试");
+          chat.configure(value.tools!);
+          break;
+        }
         case "send": {
           if (!input || typeof input !== "object" || Array.isArray(input))
             throw new Error("Invalid message");
@@ -282,6 +298,13 @@ async function start() {
             throw new Error("Invalid copy text");
           clipboard.writeText(input);
           break;
+        case "open-url": {
+          const url = publicWebUrl(input);
+          if (!url) throw new Error("仅支持打开不含凭据的公网 HTTP/HTTPS 网址");
+          if (isolated) throw new Error("OS browser access is disabled in tests");
+          await shell.openExternal(url);
+          break;
+        }
         case "resize": {
           const value = input as { generation?: number; height?: number; occupied?: boolean } | null;
           if (!value || typeof value.height !== "number" || !Number.isFinite(value.height) || typeof value.occupied !== "boolean")

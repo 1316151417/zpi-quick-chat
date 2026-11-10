@@ -69,6 +69,20 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
     };
     await expect.poll(size).toEqual({ width: 360, height: 44 });
     await expect(page.locator("body")).not.toHaveClass("expanded");
+    const web = page.getByRole("button", { name: "联网搜索", exact: true }),
+      bash = page.getByRole("button", { name: "Bash", exact: true });
+    await expect(web).toHaveAttribute("aria-pressed", "false");
+    await expect(bash).toHaveAttribute("aria-pressed", "false");
+    await web.click();
+    await expect(web).toHaveAttribute("aria-pressed", "true");
+    await bash.click();
+    await expect(bash).toHaveAttribute("aria-pressed", "true");
+    await expect(web).toHaveAttribute("aria-pressed", "true");
+    await page.screenshot({ path: test.info().outputPath("tools-selected.png") });
+    await web.click();
+    await bash.click();
+    await expect(web).toHaveAttribute("aria-pressed", "false");
+    await expect(bash).toHaveAttribute("aria-pressed", "false");
     expect(await input.evaluate((node) => node.getBoundingClientRect().height)).toBe(24);
     const pin = page.getByRole("button", { name: "固定窗口", exact: true });
     await expect(pin).toBeHidden();
@@ -176,7 +190,8 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
     await expect(page.locator(".assistant .message-text")).toContainText("你");
     await expect(page.locator("#stop")).toBeVisible();
     await expect(page.locator(".assistant")).toContainText("你好，世界");
-    await expect(page.getByRole("button", { name: "复制" })).toBeVisible();
+    await expect(page.locator(".assistant").getByRole("button", { name: "复制", exact: true })).toBeVisible();
+    await expect(page.locator(".user").getByRole("button", { name: "复制", exact: true })).toBeVisible();
     await expect(page.locator("#stop")).toBeHidden();
     expect(api.requests).toHaveLength(1);
     await expect.poll(size).toEqual({ width: 660, height: 560 });
@@ -196,7 +211,7 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
     await expect(page.locator("#error")).toBeHidden();
     await page.locator(".assistant").evaluate((node) => node.setAttribute("data-preserved", "true"));
     await page.screenshot({ path: test.info().outputPath("expanded.png") });
-    await page.locator(".assistant .message-text").evaluate((node) => {
+    await page.locator(".assistant .answer").evaluate((node) => {
       const range = document.createRange();
       range.selectNodeContents(node);
       window.getSelection()!.removeAllRanges();
@@ -212,7 +227,8 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
     await expect(page.locator(".assistant").last()).toContainText("继续对话");
     await expect(page.locator(".assistant").first()).toHaveAttribute("data-preserved", "true");
     expect(JSON.stringify(api.requests[0].messages)).toContain("image_url");
-    expect(JSON.stringify(api.requests[0].messages)).toContain("常规问题不超过3句话");
+    expect(JSON.stringify((api.requests[0].messages as { role: string }[]).filter((message) => message.role === "system")))
+      .toContain("你是一个有用的助手，帮助用户完成任务。要求回复极简、本质、清晰、易懂。");
     expect(JSON.stringify(api.requests[1].messages)).toContain("Translate hello");
     await input.fill("滚动内容\n".repeat(30));
     await input.evaluate((node: HTMLTextAreaElement) => { node.scrollTop = 0; });
@@ -306,6 +322,123 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
     await page.evaluate(() =>
       (window as unknown as { restoreImageReader(): void }).restoreImageReader(),
     );
+    await page.evaluate(() => window.quickChat.invoke("reset"));
+    await expect(web).toHaveAttribute("aria-pressed", "false");
+    await expect(bash).toHaveAttribute("aria-pressed", "false");
+    await web.click();
+    await bash.click();
+    api.queueCalls([
+      { name: "web_search", input: { query: "测试来源", count: 3 } },
+      { name: "web_fetch", input: { url: "https://example.com/source" } },
+      { name: "Bash", input: { command: "printf desktop > desktop-proof.txt; pwd; cat desktop-proof.txt" } },
+    ], "## 任务已完成\n\n已读取**测试来源**，可查看[原文](https://example.com/source)。\n\n- 搜索\n- 阅读\n\n| 工具 | 状态 |\n| --- | --- |\n| Bash | 完成 |\n\n```sh\npwd\n```\n\n来源：<https://example.com/source>\n", { delayMs: 5, chunkSize: 8 });
+    await input.fill("测试联网和本地工具");
+    await input.press("Enter");
+    await expect(web).toBeHidden();
+    await expect(bash).toBeHidden();
+    await expect(page.locator(".assistant .message-text")).toContainText("任务已完成");
+    await expect(page.locator("#stop")).toBeHidden();
+    const work = page.locator(".process");
+    await expect(work).toHaveAttribute("data-complete", "true");
+    expect(await work.evaluate((node: HTMLDetailsElement) => node.open)).toBe(false);
+    await expect(page.locator(".answer h2")).toHaveText("任务已完成");
+    await expect(page.locator(".answer strong")).toHaveText("测试来源");
+    await expect(page.locator(".answer table")).toBeVisible();
+    await expect(page.locator(".answer pre code")).toHaveText("pwd");
+    await expect(page.locator(".answer")).not.toContainText("来源：");
+    await page.screenshot({ path: test.info().outputPath("tools-completed.png") });
+    await work.locator(":scope > summary").click();
+    await expect(page.locator(".tool-call")).toHaveCount(3);
+    await expect(page.locator(".tool-call").first().locator(".tool-summary-row")).toContainText("联网搜索查找 测试来源1 个来源");
+    await expect(page.locator(".tool-call").first().locator("summary")).toHaveCount(0);
+    await expect(page.locator(".answer a")).toHaveAttribute("href", "https://example.com/source");
+    await page.locator(".tool-call").last().locator("summary").click();
+    await expect(page.locator(".tool-call").last()).toContainText(dir);
+    await expect(page.locator(".tool-call").last()).toContainText("desktop");
+    expect(api.webRequests.map((request) => request.path)).toEqual(["/v1/tools/search", "/v1/tools/fetch"]);
+    expect(JSON.stringify(api.requests.at(-1)?.messages)).toContain("zpi.environment");
+    expect(JSON.stringify(api.requests.at(-1)?.messages)).not.toContain("当前工作目录");
+    await page.screenshot({ path: test.info().outputPath("tools-expanded.png") });
+    await page.evaluate(() => window.quickChat.invoke("snapshot"));
+    expect(await work.evaluate((node: HTMLDetailsElement) => node.open)).toBe(true);
+    await work.locator(":scope > summary").click();
+    const sources = page.getByRole("button", { name: "来源，1 个网页", exact: true });
+    expect(await sources.evaluate((node) => node.previousElementSibling?.classList.contains("copy"))).toBe(true);
+    const time = page.locator(".assistant .message-time");
+    await expect(time).toHaveText(/^\d{2}:\d{2}$/);
+    expect(await time.evaluate((node) => node.previousElementSibling?.classList.contains("answer-sources-trigger"))).toBe(true);
+    const answeredAt = await time.getAttribute("datetime");
+    expect(Math.abs(Date.now() - Date.parse(answeredAt!))).toBeLessThan(10000);
+    await sources.click();
+    const popover = page.getByRole("dialog", { name: "来源 1", exact: true });
+    await expect(popover).toBeVisible();
+    await expect(page.locator(".answer-source-title")).toHaveText("测试来源");
+    await expect(page.locator(".answer-source-site")).toHaveText("Example");
+    expect(await popover.evaluate((node) => {
+      const box = node.getBoundingClientRect();
+      return box.left >= 12 && box.top >= 12 && box.right <= innerWidth - 12 && box.bottom <= innerHeight - 12;
+    })).toBe(true);
+    await page.screenshot({ path: test.info().outputPath("sources-popover.png") });
+    await page.keyboard.press("Escape");
+    await expect(popover).toBeHidden();
+    await expect(sources).toHaveAttribute("aria-expanded", "false");
+    await page.evaluate(() => window.quickChat.invoke("snapshot"));
+    await expect(time).toHaveAttribute("datetime", answeredAt!);
+    await sources.click();
+    await input.click();
+    await expect(popover).toBeHidden();
+    const locked = await page.evaluate(() => new Promise<{ ok: boolean }>((resolve) => {
+      const off = window.quickChat.onSnapshot((snapshot) => {
+        off();
+        void window.quickChat.invoke("tools", { generation: snapshot.generation, tools: { web: false, bash: false } }).then(resolve);
+      });
+      void window.quickChat.invoke("snapshot");
+    }));
+    expect(locked).toMatchObject({ ok: false });
+    expect(await page.evaluate(() => window.quickChat.invoke("open-url", "javascript:alert(1)"))).toMatchObject({ ok: false });
+    await page.evaluate(() => window.quickChat.invoke("reset"));
+    await expect(web).toHaveAttribute("aria-pressed", "false");
+    await expect(bash).toHaveAttribute("aria-pressed", "false");
+    await expect.poll(size).toEqual({ width: 360, height: 44 });
+    // Keep producing real SSE while the user scrolls up by less than the old 80px threshold.
+    const longReply = Array.from({ length: 150 }, (_, index) => `第 ${index + 1} 段。**持续输出**，检查阅读位置保持不变。\n\n`).join("");
+    await page.emulateMedia({ colorScheme: "light" });
+    api.queueCalls([], longReply, { delayMs: 12, chunkSize: 16, initialDelayMs: 2300 });
+    await input.fill("输出长文以测试滚动\n" + "用户输入内容\n".repeat(30));
+    await input.press("Enter");
+    const expandUser = page.getByRole("button", { name: "展开消息", exact: true });
+    await expect(expandUser).toBeVisible();
+    await expandUser.click();
+    await expect(page.getByRole("button", { name: "收起消息", exact: true })).toHaveAttribute("aria-expanded", "true");
+    await page.getByRole("button", { name: "收起消息", exact: true }).click();
+    await expect(expandUser).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByRole("status", { name: "加载中", exact: true })).toBeVisible();
+    await expect(page.locator(".process > summary")).toHaveText("工作中 2 秒");
+    await page.screenshot({ path: test.info().outputPath("working.png") });
+    const conversation = page.locator("#messages"), reply = page.locator(".assistant .message-text");
+    await expect.poll(() => reply.textContent().then((text) => text!.length)).toBeGreaterThan(1000);
+    await conversation.press("End");
+    await expect(page.locator("#stop")).toBeVisible();
+    expect(await conversation.evaluate((node) => node.scrollTop)).toBeGreaterThan(100);
+    await conversation.hover();
+    await conversation.evaluate((node) => node.addEventListener("wheel", () => {
+      node.dataset.wheelTop = String(node.scrollTop);
+    }, { once: true }));
+    await page.mouse.wheel(0, -40);
+    await expect.poll(() => conversation.evaluate((node) => node.scrollTop - Number(node.dataset.wheelTop))).toBeLessThan(-10);
+    const readingTop = await conversation.evaluate((node) => node.scrollTop), textLength = (await reply.textContent())!.length;
+    await page.evaluate(() => window.quickChat.invoke("snapshot"));
+    await expect.poll(() => reply.textContent().then((text) => text!.length)).toBeGreaterThan(textLength + 600);
+    expect(await conversation.evaluate((node) => node.scrollTop)).toBeCloseTo(readingTop, 0);
+    // Returning to the bottom explicitly resumes following the rest of the reply.
+    await conversation.press("End");
+    await expect.poll(() => conversation.evaluate((node) => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThan(3);
+    await expect(page.locator("#stop")).toBeHidden();
+    expect(await conversation.evaluate((node) => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThan(3);
+    expect(JSON.stringify(api.requests.at(-1)?.messages)).toContain("zpi.environment");
+    expect(JSON.stringify(api.requests.at(-1)?.messages)).toContain(dir);
+    await page.evaluate(() => window.quickChat.invoke("reset"));
+    expect(errors).toEqual([]);
   } finally {
     if (application) {
       const process = application.process();
