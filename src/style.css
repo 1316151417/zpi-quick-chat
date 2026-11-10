@@ -267,6 +267,7 @@ textarea::placeholder { color: var(--muted); }
 .answer-source-date, .answer-source-excerpt { color: var(--muted); }
 .message-images { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .message-images img { width: 80px; height: 80px; object-fit: cover; border-radius: 12px; }
+.tool-images { margin: 8px 0 0 24px; }
 .image-preview { border-radius: 8px; }
 #image-preview {
   inset: 0;

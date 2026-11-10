@@ -25,6 +25,7 @@ export interface ToolCall {
   input: string;
   offset: number;
   output?: string;
+  images?: ImageInput[];
   error?: boolean;
   sources?: WebSource[];
 }

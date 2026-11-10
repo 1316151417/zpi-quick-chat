@@ -1,5 +1,5 @@
 import { test, expect, _electron as electron } from "@playwright/test";
-import { cp, mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
@@ -70,9 +70,10 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
     await expect.poll(size).toEqual({ width: 360, height: 44 });
     await expect(page.locator("body")).not.toHaveClass("expanded");
     const web = page.getByRole("button", { name: "联网搜索", exact: true }),
-      bash = page.getByRole("button", { name: "Bash", exact: true });
+      bash = page.getByRole("button", { name: "本机工具", exact: true });
     await expect(web).toHaveAttribute("aria-pressed", "false");
     await expect(bash).toHaveAttribute("aria-pressed", "false");
+    await expect(bash).toHaveAttribute("title", /查找文件、读取文字和图片、执行命令/);
     await web.click();
     await expect(web).toHaveAttribute("aria-pressed", "true");
     await bash.click();
@@ -327,10 +328,13 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
     await expect(bash).toHaveAttribute("aria-pressed", "false");
     await web.click();
     await bash.click();
+    const localImagePath = join(dir, "local image.png");
+    await writeFile(localImagePath, Buffer.from(pictures[0].bytes));
     api.queueCalls([
       { name: "web_search", input: { query: "测试来源", count: 3 } },
       { name: "web_fetch", input: { url: "https://example.com/source" } },
       { name: "Bash", input: { command: "printf desktop > desktop-proof.txt; pwd; cat desktop-proof.txt" } },
+      { name: "Read", input: { file_path: localImagePath } },
     ], "## 任务已完成\n\n已读取**测试来源**，可查看[原文](https://example.com/source)。\n\n- 搜索\n- 阅读\n\n| 工具 | 状态 |\n| --- | --- |\n| Bash | 完成 |\n\n```sh\npwd\n```\n\n来源：<https://example.com/source>\n", { delayMs: 5, chunkSize: 8 });
     await input.fill("测试联网和本地工具");
     await input.press("Enter");
@@ -348,13 +352,27 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
     await expect(page.locator(".answer")).not.toContainText("来源：");
     await page.screenshot({ path: test.info().outputPath("tools-completed.png") });
     await work.locator(":scope > summary").click();
-    await expect(page.locator(".tool-call")).toHaveCount(3);
+    await expect(page.locator(".tool-call")).toHaveCount(4);
     await expect(page.locator(".tool-call").first().locator(".tool-summary-row")).toContainText("联网搜索查找 测试来源1 个来源");
     await expect(page.locator(".tool-call").first().locator("summary")).toHaveCount(0);
     await expect(page.locator(".answer a")).toHaveAttribute("href", "https://example.com/source");
-    await page.locator(".tool-call").last().locator("summary").click();
-    await expect(page.locator(".tool-call").last()).toContainText(dir);
-    await expect(page.locator(".tool-call").last()).toContainText("desktop");
+    await page.locator(".tool-call").nth(2).locator("summary").click();
+    await expect(page.locator(".tool-call").nth(2)).toContainText(dir);
+    await expect(page.locator(".tool-call").nth(2)).toContainText("desktop");
+    const read = page.locator(".tool-call").last();
+    await expect(read.locator(".tool-summary-row")).toContainText("读取文件");
+    await expect(read.locator(".tool-summary-text")).toHaveText(localImagePath);
+    const thumbnail = read.getByRole("button", { name: `预览 ${localImagePath}`, exact: true });
+    await expect(thumbnail).toBeVisible();
+    await expect(thumbnail.locator("img")).toHaveJSProperty("naturalWidth", 600);
+    await thumbnail.click();
+    await expect(viewer).toBeVisible();
+    await expect(viewer.locator("img")).toHaveAttribute("alt", localImagePath);
+    await page.keyboard.press("Escape");
+    await expect(viewer).toBeHidden();
+    await page.evaluate(() => window.quickChat.invoke("snapshot"));
+    await expect(read.locator(".tool-images img")).toHaveCount(1);
+    expect(JSON.stringify(api.requests.at(-1)?.messages)).toContain("image_url");
     expect(api.webRequests.map((request) => request.path)).toEqual(["/v1/tools/search", "/v1/tools/fetch"]);
     expect(JSON.stringify(api.requests.at(-1)?.messages)).toContain("zpi.environment");
     expect(JSON.stringify(api.requests.at(-1)?.messages)).not.toContain("当前工作目录");

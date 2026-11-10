@@ -96,7 +96,8 @@ export class Chat {
         (total, message) =>
           total +
           Buffer.byteLength(message.text) +
-          (message.calls ?? []).reduce((size, call) => size + Buffer.byteLength(call.input) + Buffer.byteLength(call.output ?? ""), 0) +
+          (message.calls ?? []).reduce((size, call) => size + Buffer.byteLength(call.input) + Buffer.byteLength(call.output ?? "") +
+            (call.images ?? []).reduce((size, image) => size + image.data.length, 0), 0) +
           (message.images ?? []).reduce((size, image) => size + image.data.length, 0),
         0,
       );
@@ -106,7 +107,7 @@ export class Chat {
       const input = new Inputs();
       const { web, bash } = this.state.tools;
       const customTools = web ? webTools(this.apiKey, this.options.zpi?.fetch) : [];
-      const names = [...customTools.map((tool) => tool.name), ...(bash ? ["Bash"] : [])];
+      const names = [...customTools.map((tool) => tool.name), ...(bash ? ["Bash", "Read"] : [])];
       this.query = query({ prompt: input, options: {
         ...this.options,
         cwd: this.state.cwd,
@@ -211,7 +212,7 @@ export class Chat {
           assistant.calls.push({
             id: call.id, name: call.name,
             offset: assistant.text.length,
-            input: String(call.input[call.name === "Bash" ? "command" : call.name === "web_search" ? "query" : "url"] ?? "").slice(0, 16000),
+            input: String(call.input[call.name === "Bash" ? "command" : call.name === "Read" ? "file_path" : call.name === "web_search" ? "query" : "url"] ?? "").slice(0, 16000),
           });
       }
       if (calls.length) this.publish();
@@ -224,6 +225,10 @@ export class Chat {
           .filter((item) => item.type === "text").map((item) => item.text).join("\n");
         call.output = output.length > 16000 ? output.slice(0, 16000) + "\n[输出已截断]" : output;
         call.error = block.is_error;
+        if (call.name === "Read" && !call.error && Array.isArray(block.content))
+          call.images = block.content.flatMap((item) => item.type === "image" && item.source.type === "base64"
+            ? [{ name: call.input, mimeType: item.source.media_type, data: item.source.data }]
+            : []);
         if (!call.error) call.sources = webSources(call.name, output);
         this.publish();
       }

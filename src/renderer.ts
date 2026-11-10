@@ -11,6 +11,7 @@ const icon = (body: string, size = 16) => `<svg width="${size}" height="${size}"
 const copyIcon = icon('<rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2"/>', 14);
 const checkIcon = icon('<path d="m20 6-11 11-5-5"/>', 14);
 const searchIcon = icon('<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>');
+const fileIcon = icon('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 13h8M8 17h6"/>');
 const loaderIcon = icon('<path d="M12 2v4m4.2 1.8 2.9-2.9M18 12h4m-5.8 4.2 2.9 2.9M12 18v4M4.9 19.1l2.9-2.9M2 12h4M4.9 4.9l2.9 2.9"/>');
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const input = element<HTMLTextAreaElement>("input"),
@@ -98,12 +99,12 @@ function renderMarkdown(node: HTMLElement, value: string) {
   rendered.set(node, value);
 }
 function renderCall(node: HTMLElement, call: ToolCall) {
-  const terminal = call.name === "Bash", search = call.name === "web_search", running = call.output === undefined;
+  const terminal = call.name === "Bash", file = call.name === "Read", search = call.name === "web_search", running = call.output === undefined;
   if (!node.childElementCount) {
     node.className = "tool-call";
     const summary = document.createElement(terminal ? "summary" : "div");
     summary.className = "tool-summary-row";
-    summary.innerHTML = `${terminal ? terminalIcon : search ? searchIcon : globeIcon}<strong></strong><span class="tool-summary-text"></span><span class="tool-summary-status"></span>${terminal ? icon('<path d="m9 18 6-6-6-6"/>') : ""}`;
+    summary.innerHTML = `${terminal ? terminalIcon : file ? fileIcon : search ? searchIcon : globeIcon}<strong></strong><span class="tool-summary-text"></span><span class="tool-summary-status"></span>${terminal ? icon('<path d="m9 18 6-6-6-6"/>') : ""}`;
     node.append(summary);
     if (terminal) {
       const command = document.createElement("pre"), output = document.createElement("pre");
@@ -114,12 +115,17 @@ function renderCall(node: HTMLElement, call: ToolCall) {
       const failure = document.createElement("p");
       failure.className = "tool-error";
       node.append(failure);
+      if (file) {
+        const gallery = document.createElement("div");
+        gallery.className = "message-images tool-images";
+        node.append(gallery);
+      }
     }
   }
   const primary = search ? `查找 ${call.input}` : call.input;
   node.dataset.running = String(running);
   const summary = node.firstElementChild!;
-  setText(summary.querySelector("strong")!, terminal ? running ? "正在执行" : "终端" : search ? running ? "正在搜索" : "联网搜索" : running ? "正在读取" : "读取网页");
+  setText(summary.querySelector("strong")!, terminal ? running ? "正在执行" : "终端" : search ? running ? "正在搜索" : "联网搜索" : running ? "正在读取" : file ? "读取文件" : "读取网页");
   setText(summary.querySelector(".tool-summary-text")!, primary);
   summary.setAttribute("title", primary);
   setText(summary.querySelector(".tool-summary-status")!, running ? "" : call.error ? "未完成" : search ? `${call.sources?.length ?? 0} 个来源` : terminal ? "" : "已完成");
@@ -130,6 +136,11 @@ function renderCall(node: HTMLElement, call: ToolCall) {
     const failure = node.querySelector<HTMLElement>(".tool-error")!;
     setText(failure, call.error ? call.output ?? "工具执行失败" : "");
     failure.hidden = !call.error;
+    if (file) {
+      const gallery = node.querySelector<HTMLElement>(".tool-images")!;
+      if (!gallery.childElementCount && call.images?.length) gallery.append(...call.images.map(imageButton));
+      gallery.hidden = !call.images?.length;
+    }
   }
 }
 function answerSources(message: ChatMessage): WebSource[] {
@@ -413,8 +424,8 @@ bridge.onSnapshot((snapshot) => {
   web.setAttribute("aria-pressed", String(snapshot.tools.web));
   bash.setAttribute("aria-pressed", String(snapshot.tools.bash));
   web.title = `${snapshot.tools.web ? "关闭" : "启用"}联网搜索`;
-  bash.title = `${snapshot.tools.bash ? "关闭" : "启用"} Bash（可读写并执行本机命令）\n工作目录：${snapshot.cwd}`;
-  document.querySelector("header")!.title = [snapshot.tools.web ? "联网搜索已启用" : "联网搜索已关闭", snapshot.tools.bash ? `Bash 已启用\n工作目录：${snapshot.cwd}` : "Bash 已关闭"].join(" · ");
+  bash.title = `${snapshot.tools.bash ? "关闭" : "启用"}本机工具（查找文件、读取文字和图片、执行命令）\n工作目录：${snapshot.cwd}`;
+  document.querySelector("header")!.title = [snapshot.tools.web ? "联网搜索已启用" : "联网搜索已关闭", snapshot.tools.bash ? `本机工具已启用\n工作目录：${snapshot.cwd}` : "本机工具已关闭"].join(" · ");
   document.body.classList.toggle("expanded", snapshot.expanded ?? snapshot.messages.length > 0);
   pin.setAttribute("aria-pressed", String(Boolean(snapshot.pinned)));
   pin.title = snapshot.pinned ? "已固定，点击后失焦隐藏" : "失焦隐藏，点击固定窗口";

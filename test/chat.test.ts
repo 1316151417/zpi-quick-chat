@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -135,7 +135,7 @@ test("tool choices lock only after accepted input, and reset clears both choices
     assert.throws(() => f.chat.configure({ web: true, bash: true }), /锁定/);
     await waitFor(() => !f.chat.snapshot().busy);
     assert.match(JSON.stringify(f.api.requests[0].messages), new RegExp(f.dir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-    assert.deepEqual((f.api.requests[0].tools as { function: { name: string } }[]).map((tool) => tool.function.name), ["Bash"]);
+    assert.deepEqual((f.api.requests[0].tools as { function: { name: string } }[]).map((tool) => tool.function.name), ["Bash", "Read"]);
     const resetting = f.chat.reset();
     assert.deepEqual(f.chat.snapshot().tools, { web: false, bash: false });
     f.chat.configure({ web: true, bash: false });
@@ -161,6 +161,78 @@ test("Bash reuses the SDK runner, executes in the locked cwd, and preserves mult
     assert.notEqual(assistant.calls![0].error, true);
     assert.match(JSON.stringify(f.api.requests.at(-1)?.messages), /tool/);
   } finally { await f.close(); }
+});
+
+test("local tools find and read an image through SDK Read and retain it for follow-up questions", async (t) => {
+  for (const nativeDeepSeek of [false, true]) await t.test(nativeDeepSeek ? "production DeepSeek" : "OpenAI compatible", async () => {
+    const f = await fixture({ nativeDeepSeek });
+    const file = join(f.dir, "local image.png"),
+      data = "iVBORw0KGgoAAAANSUhEUgAAAAMAAAACCAIAAAASFvFNAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEklEQVQImWP4z8AAQVDqPwMDAEHSBfsYFwTiAAAAAElFTkSuQmCC";
+    try {
+      await writeFile(file, Buffer.from(data, "base64"));
+      f.api.queueCalls([
+        { name: "Bash", input: { command: "find . -maxdepth 1 -name '*.png' -print" } },
+        { name: "Read", input: { file_path: file } },
+      ], "图片已读取");
+      f.chat.configure({ web: false, bash: true });
+      f.chat.send("查找当前目录的图片并查看内容");
+      await waitFor(() => !f.chat.snapshot().busy);
+      assert.equal(f.chat.snapshot().error, undefined);
+      const calls = f.chat.snapshot().messages.at(-1)!.calls!;
+      assert.match(calls[0].output!, /local image\.png/);
+      assert.equal(calls[1].name, "Read");
+      assert.equal(calls[1].input, file);
+      assert.notEqual(calls[1].error, true);
+      assert.deepEqual(calls[1].images, [{ name: file, mimeType: "image/png", data }]);
+      const tools = f.api.requests[0].tools as { name?: string; function?: { name: string } }[];
+      assert.deepEqual(tools.map((tool) => tool.name ?? tool.function?.name), ["Bash", "Read"]);
+      assert.ok(JSON.stringify(f.api.requests[2].messages).includes(data), "The model receives image bytes from the real file");
+      assert.match(JSON.stringify(f.api.requests[2].messages), nativeDeepSeek ? /"type":"image"/ : /"type":"image_url"/);
+      f.chat.send("继续分析刚才读取的图片");
+      await waitFor(() => !f.chat.snapshot().busy);
+      assert.equal(f.chat.snapshot().error, undefined);
+      assert.ok(JSON.stringify(f.api.requests.at(-1)?.messages).includes(data));
+      await f.chat.reset();
+      assert.equal(f.chat.snapshot().messages.length, 0);
+      assert.deepEqual(f.chat.snapshot().tools, { web: false, bash: false });
+    } finally { await f.close(); }
+  });
+});
+
+test("a failed SDK Read shows the file path and error and permits a follow-up", async () => {
+  const f = await fixture({ nativeDeepSeek: true });
+  try {
+    const file = join(f.dir, "missing.png");
+    f.api.queueCalls([{ name: "Read", input: { file_path: file } }], "读取失败");
+    f.chat.configure({ web: false, bash: true });
+    f.chat.send("读取不存在的图片");
+    await waitFor(() => !f.chat.snapshot().busy);
+    const call = f.chat.snapshot().messages.at(-1)!.calls![0];
+    assert.equal(call.input, file);
+    assert.equal(call.error, true);
+    assert.match(call.output!, /ENOENT|no such file/i);
+    assert.equal(call.images, undefined);
+    f.chat.send("继续");
+    await waitFor(() => !f.chat.snapshot().busy);
+    assert.equal(f.chat.snapshot().error, undefined);
+  } finally { await f.close(); }
+});
+
+test("Read is unavailable until local tools are enabled, including in web-only sessions", async (t) => {
+  for (const web of [false, true]) await t.test(web ? "web only" : "plain chat", async () => {
+    const f = await fixture({ nativeDeepSeek: true });
+    try {
+      const file = join(f.dir, "private.txt"), contents = "read-disabled-fixture-content";
+      await writeFile(file, contents);
+      f.api.queueCalls([{ name: "Read", input: { file_path: file } }], "完成");
+      f.chat.configure({ web, bash: false });
+      f.chat.send("本机工具未启用");
+      await waitFor(() => !f.chat.snapshot().busy);
+      assert.ok(!(f.api.requests[0].tools as { name: string }[] | undefined)?.some((tool) => tool.name === "Read"));
+      assert.equal(f.chat.snapshot().messages.at(-1)?.calls?.[0].error, true);
+      assert.ok(!JSON.stringify(f.api.requests).includes(contents));
+    } finally { await f.close(); }
+  });
 });
 
 test("long tool runs can exceed twelve model rounds and continue in the same conversation", async (t) => {
