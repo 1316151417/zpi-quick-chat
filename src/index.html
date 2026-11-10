@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"><title>Quick Chat</title><link rel="stylesheet" href="./style.css"></head>
 <body>
+  <div id="window">
   <header>
     <button id="new" title="新建对话 ⌥⇧Space" aria-label="新对话"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
     <button id="pin" aria-label="固定窗口" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 9V3H8v6l-3 4v3h14v-3ZM12 16v6"/></svg></button>
@@ -16,6 +17,7 @@
       </div>
       <div id="error" role="alert" hidden></div>
     </form>
+  </div>
   </div>
   <dialog id="image-preview" aria-label="图片预览"><button type="button" aria-label="关闭图片预览">×</button><img alt=""></dialog>
   <script type="module" src="./renderer.js"></script>

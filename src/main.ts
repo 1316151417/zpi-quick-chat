@@ -47,6 +47,7 @@ async function start() {
   await app.whenReady();
   if (!isolated) app.dock?.hide();
   let expanded = false,
+    previewing = false,
     keepExpanded = false,
     hasMessages = false,
     occupied = false,
@@ -101,9 +102,10 @@ async function start() {
     if (!changed && expanded) return;
     const current = win.getBounds(),
       display = screen.getDisplayMatching(current),
-      next = bounds(display, expanded ? 660 : 360, expanded ? 560 : compactHeight);
-    if (changed) {
-      win.setMinimumSize(Math.min(expanded ? 440 : 360, next.width), Math.min(expanded ? 360 : 44, next.height));
+      wide = expanded || previewing,
+      next = bounds(display, wide ? 660 : 360, wide ? 560 : compactHeight);
+    if (changed || current.width !== next.width) {
+      win.setMinimumSize(Math.min(wide ? 440 : 360, next.width), Math.min(wide ? 360 : 44, next.height));
     }
     if (current.x !== next.x || current.y !== next.y || current.width !== next.width || current.height !== next.height)
       win.setBounds(next);
@@ -123,9 +125,10 @@ async function start() {
     if (!win.isVisible() || !win.isFocused()) {
       const current = win.getBounds(),
         display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()),
-        next = bounds(display, expanded ? 660 : 360, expanded ? 560 : compactHeight);
+        wide = expanded || previewing,
+        next = bounds(display, wide ? 660 : 360, wide ? 560 : compactHeight);
       if (next.width !== current.width || next.height !== current.height)
-        win.setMinimumSize(Math.min(expanded ? 440 : 360, next.width), Math.min(expanded ? 360 : 44, next.height));
+        win.setMinimumSize(Math.min(wide ? 440 : 360, next.width), Math.min(wide ? 360 : 44, next.height));
       if (current.x !== next.x || current.y !== next.y || current.width !== next.width || current.height !== next.height)
         win.setBounds(next);
     }
@@ -213,6 +216,7 @@ async function start() {
     });
   const reset = () => {
     keepExpanded = expanded && win.isVisible();
+    previewing = false;
     pinned = false;
     occupied = false;
     compactHeight = 44;
@@ -255,6 +259,14 @@ async function start() {
           win.webContents.send("quick-chat:snapshot", { ...chat.snapshot(), expanded, pinned });
           break;
         }
+        case "preview": {
+          const value = input as { generation?: number; open?: boolean } | null;
+          if (!value || typeof value.open !== "boolean") throw new Error("Invalid preview state");
+          if (value.generation !== chat.generation) throw new Error("会话已切换，请重试");
+          previewing = value.open;
+          layout(expanded);
+          break;
+        }
         case "hide":
           hide();
           break;
@@ -276,7 +288,7 @@ async function start() {
             throw new Error("Invalid height");
           if (value.generation === chat.generation) {
             occupied = value.occupied;
-            if (!expanded) layout(false, Math.max(44, Math.min(Math.ceil(value.height), 320)));
+            if (!expanded && !previewing) layout(false, Math.max(44, Math.min(Math.ceil(value.height), 320)));
           }
           break;
         }

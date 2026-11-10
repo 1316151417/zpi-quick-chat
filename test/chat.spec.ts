@@ -56,6 +56,17 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
       const { width, height } = BrowserWindow.getAllWindows()[0].getBounds();
       return { width, height };
     });
+    const checkCorners = async (name: string) => {
+      const screenshot = await page.screenshot({ omitBackground: true, path: test.info().outputPath(`${name}.png`) });
+      const alpha = await application!.evaluate(({ nativeImage }, png) => {
+        const image = nativeImage.createFromBuffer(Buffer.from(png, "base64")),
+          { width, height } = image.getSize(),
+          pixels = image.toBitmap();
+        return [[0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1], [width >> 1, height >> 1]]
+          .map(([x, y]) => pixels[(y * width + x) * 4 + 3]);
+      }, screenshot.toString("base64"));
+      expect(alpha, `${name}: transparent corners and opaque center`).toEqual([0, 0, 0, 0, 255]);
+    };
     await expect.poll(size).toEqual({ width: 360, height: 44 });
     await expect(page.locator("body")).not.toHaveClass("expanded");
     expect(await input.evaluate((node) => node.getBoundingClientRect().height)).toBe(24);
@@ -120,22 +131,43 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
         },
         files.map((file) => ({ name: file.name, mimeType: file.mimeType, bytes: [...file.buffer] })),
       );
-    await pasteImages([
-      {
-        name: "one.png",
-        mimeType: "image/png",
-        buffer: Buffer.from(
-          "iVBORw0KGgoAAAANSUhEUgAAAAMAAAACCAIAAAASFvFNAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEklEQVQImWP4z8AAQVDqPwMDAEHSBfsYFwTiAAAAAElFTkSuQmCC",
-          "base64",
-        ),
-      },
-    ]);
-    await expect(page.locator("#images img")).toHaveCount(1);
+    const pictures = await application.evaluate(({ nativeImage }) => {
+      const image = nativeImage.createFromBuffer(Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAMAAAACCAIAAAASFvFNAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEklEQVQImWP4z8AAQVDqPwMDAEHSBfsYFwTiAAAAAElFTkSuQmCC",
+        "base64",
+      ));
+      return [
+        { name: "one.png", bytes: [...image.resize({ width: 600, height: 1800 }).toPNG()] },
+        { name: "wide.png", bytes: [...image.resize({ width: 1800, height: 600 }).toPNG()] },
+      ];
+    });
+    await pasteImages(pictures.map((picture) => ({ name: picture.name, mimeType: "image/png", buffer: Buffer.from(picture.bytes) })));
+    await expect(page.locator("#images img")).toHaveCount(2);
     await expect.poll(size).toEqual({ width: 360, height: 100 });
-    await page.getByRole("button", { name: "预览 one.png", exact: true }).click();
-    await expect(page.getByRole("dialog", { name: "图片预览" })).toBeVisible();
-    await page.keyboard.press("Escape");
-    await expect(page.getByRole("dialog", { name: "图片预览" })).toBeHidden();
+    const viewer = page.getByRole("dialog", { name: "图片预览" });
+    await input.fill("预览前的草稿\n第二行\n第三行");
+    await expect.poll(size).toEqual({ width: 360, height: 144 });
+    for (const [index, picture] of pictures.entries()) {
+      await page.getByRole("button", { name: `预览 ${picture.name}`, exact: true }).click();
+      await expect(viewer).toBeVisible();
+      await expect.poll(size).toEqual({ width: 660, height: 560 });
+      await expect(page.locator("body")).not.toHaveClass("expanded");
+      await expect(viewer.locator("img")).toHaveJSProperty("complete", true);
+      expect(await viewer.locator("img").evaluate((image: HTMLImageElement) => {
+        const rect = image.getBoundingClientRect();
+        return {
+          fits: rect.top >= 36 && rect.left >= 16 && rect.right <= innerWidth - 16 && rect.bottom <= innerHeight - 16,
+          undistorted: Math.abs(rect.width / rect.height - image.naturalWidth / image.naturalHeight) < 0.01,
+        };
+      })).toEqual({ fits: true, undistorted: true });
+      await checkCorners(`preview-${index}`);
+      if (index === 0) await page.keyboard.press("Escape");
+      else await viewer.getByRole("button", { name: "关闭图片预览" }).click();
+      await expect(viewer).toBeHidden();
+      await expect.poll(size).toEqual({ width: 360, height: 144 });
+      await expect(input).toHaveValue("预览前的草稿\n第二行\n第三行");
+      await expect(page.locator("#images img")).toHaveCount(2);
+    }
     await input.fill("Translate hello");
     await input.evaluate((node) => {
       for (let index = 0; index < 2; index++)
@@ -148,6 +180,11 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
     await expect(page.locator("#stop")).toBeHidden();
     expect(api.requests).toHaveLength(1);
     await expect.poll(size).toEqual({ width: 660, height: 560 });
+    for (const colorScheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme });
+      await checkCorners(`expanded-${colorScheme}`);
+    }
+    await page.emulateMedia({ colorScheme: "light" });
     await expect(pin).toBeVisible();
     await expect(pin).toHaveAttribute("aria-pressed", "false");
     await pin.click();
@@ -177,6 +214,14 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
     expect(JSON.stringify(api.requests[0].messages)).toContain("image_url");
     expect(JSON.stringify(api.requests[0].messages)).toContain("常规问题不超过3句话");
     expect(JSON.stringify(api.requests[1].messages)).toContain("Translate hello");
+    await input.fill("滚动内容\n".repeat(30));
+    await input.evaluate((node: HTMLTextAreaElement) => { node.scrollTop = 0; });
+    await input.hover();
+    await page.mouse.wheel(0, 400);
+    await expect.poll(() => input.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+    await page.emulateMedia({ colorScheme: "dark" });
+    await page.screenshot({ path: test.info().outputPath("scrollbars-dark.png") });
+    await input.fill("");
     expect(
       await page.evaluate(() => ({
         zpi: "zpi" in window,
@@ -189,7 +234,11 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
       registered: globalShortcut.isRegistered("Alt+Space"),
     }));
     expect(native).toEqual({ visible: false, registered: false });
-    await page.getByTitle("新建对话 ⌥⇧Space").click();
+    await page.getByRole("button", { name: "预览 one.png", exact: true }).click();
+    await expect(viewer).toBeVisible();
+    await page.evaluate(() => window.quickChat.invoke("reset"));
+    await expect(viewer).toBeHidden();
+    await expect.poll(size).toEqual({ width: 360, height: 44 });
     await expect(page.locator(".message")).toHaveCount(0);
     await expect(pin).toBeHidden();
     await expect(page.locator("#pin")).toHaveAttribute("aria-pressed", "false");

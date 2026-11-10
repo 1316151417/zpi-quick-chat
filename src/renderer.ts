@@ -57,10 +57,13 @@ function imageButton(image: ImageInput) {
   img.alt = image.name;
   button.append(img);
   button.onclick = () => {
+    if (viewer.open) return;
     const preview = viewer.querySelector("img")!;
     preview.src = img.src;
     preview.alt = image.name;
+    viewer.dataset.generation = String(state.generation);
     viewer.showModal();
+    void invoke("preview", { generation: state.generation, open: true });
   };
   return button;
 }
@@ -278,7 +281,11 @@ viewer.onclick = (event) => {
   if (event.target === viewer || event.target === viewer.querySelector("button")) viewer.close();
 };
 viewer.onclose = () => {
+  if (viewer.open) return;
   viewer.querySelector("img")!.removeAttribute("src");
+  const generation = Number(viewer.dataset.generation);
+  if (generation !== state.generation) return;
+  void invoke("preview", { generation, open: false });
   input.focus();
 };
 pin.onclick = () => {
@@ -287,7 +294,7 @@ pin.onclick = () => {
 };
 let reportedLayout = "";
 function reportLayout() {
-  if (state.generation < 0) return;
+  if (state.generation < 0 || viewer.open) return;
   const layout = {
     generation: state.generation,
     height: composer.offsetHeight,
