@@ -20,6 +20,7 @@ import { macQuickChatFocus } from "./focus.ts";
 import type { ImageInput, ToolOptions } from "./types.ts";
 import { publicWebUrl } from "./web.ts";
 import { validateImages, validateImagePixels } from "./input.ts";
+import { windowBounds } from "./window.ts";
 
 const directory = dirname(fileURLToPath(import.meta.url));
 const config = readConfig(process.env);
@@ -55,21 +56,18 @@ async function start() {
     occupied = false,
     compactHeight = 44,
     pinned = false;
-  const bounds = (display: Electron.Display, width: number, height: number) => {
-    const area = display.workArea,
-      bottomInset = Math.max(0, display.bounds.y + display.bounds.height - area.y - area.height),
-      gap = bottomInset > 4 ? bottomInset : 64;
-    width = Math.min(width, area.width);
-    height = Math.min(height, area.height);
-    return {
-      width,
-      height,
-      x: Math.round(Math.max(area.x, Math.min(display.bounds.x + (display.bounds.width - width) / 2, area.x + area.width - width))),
-      y: Math.round(Math.max(area.y, area.y + area.height - gap - height)),
-    };
+  const positions: { compact?: Electron.Rectangle; expanded?: Electron.Rectangle } = {};
+  const bounds = (display: Electron.Display, wide: boolean) => {
+    const position = positions[wide ? "expanded" : "compact"];
+    return windowBounds(
+      position ? screen.getDisplayMatching(position) : display,
+      wide ? 660 : 360,
+      wide ? 560 : compactHeight,
+      position,
+    );
   };
   const win = new BrowserWindow({
-    ...bounds(screen.getDisplayNearestPoint(screen.getCursorScreenPoint()), 360, compactHeight),
+    ...bounds(screen.getDisplayNearestPoint(screen.getCursorScreenPoint()), false),
     minWidth: 360,
     minHeight: 44,
     maxWidth: 1100,
@@ -95,6 +93,10 @@ async function start() {
       backgroundThrottling: false,
     },
   });
+  // Only manual dragging records a preference; programmatic layout must not overwrite it.
+  win.on("will-move", (_event, next) => {
+    positions[expanded || previewing ? "expanded" : "compact"] = { ...next };
+  });
   let restoreFocus: (() => void) | undefined;
   const layout = (nextExpanded: boolean, height = compactHeight) => {
     compactHeight = height;
@@ -105,7 +107,7 @@ async function start() {
     const current = win.getBounds(),
       display = screen.getDisplayMatching(current),
       wide = expanded || previewing,
-      next = bounds(display, wide ? 660 : 360, wide ? 560 : compactHeight);
+      next = bounds(display, wide);
     if (changed || current.width !== next.width) {
       win.setMinimumSize(Math.min(wide ? 440 : 360, next.width), Math.min(wide ? 360 : 44, next.height));
     }
@@ -118,7 +120,7 @@ async function start() {
     (error) => console.error("Window focus:", error),
   );
   const show = () => {
-    if (isolated || win.isDestroyed()) return;
+    if (win.isDestroyed()) return;
     if (!win.isVisible() && keepExpanded && !hasMessages && !occupied) {
       keepExpanded = false;
       layout(false);
@@ -128,12 +130,13 @@ async function start() {
       const current = win.getBounds(),
         display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()),
         wide = expanded || previewing,
-        next = bounds(display, wide ? 660 : 360, wide ? 560 : compactHeight);
+        next = bounds(display, wide);
       if (next.width !== current.width || next.height !== current.height)
         win.setMinimumSize(Math.min(wide ? 440 : 360, next.width), Math.min(wide ? 360 : 44, next.height));
       if (current.x !== next.x || current.y !== next.y || current.width !== next.width || current.height !== next.height)
         win.setBounds(next);
     }
+    if (isolated) return;
     const needsFocus = !win.isFocused();
     win.show();
     if (needsFocus) restoreFocus = activate() ?? restoreFocus;

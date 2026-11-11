@@ -56,6 +56,24 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
       const { width, height } = BrowserWindow.getAllWindows()[0].getBounds();
       return { width, height };
     });
+    const position = () => application!.evaluate(({ BrowserWindow }) => {
+      const { x, y, height } = BrowserWindow.getAllWindows()[0].getBounds();
+      return { x, bottom: y + height };
+    });
+    const drag = (offset: number) => application!.evaluate(({ BrowserWindow, screen }, offset) => {
+      const win = BrowserWindow.getAllWindows()[0],
+        current = win.getBounds(),
+        area = screen.getDisplayMatching(current).workArea,
+        next = { ...current, x: area.x + offset, y: area.y + area.height - current.height - offset };
+      // Exercise the manual-drag notification without showing or activating the window.
+      win.emit("will-move", { preventDefault() {} }, next);
+      win.setBounds(next);
+    }, offset);
+    const reopen = async () => {
+      await page.evaluate(() => window.quickChat.invoke("hide"));
+      // Isolated mode runs the real placement path while keeping native visibility disabled.
+      await application!.evaluate(({ app }) => { app.emit("second-instance", {}, [], ""); });
+    };
     const checkCorners = async (name: string) => {
       const screenshot = await page.screenshot({ omitBackground: true, path: test.info().outputPath(`${name}.png`) });
       const alpha = await application!.evaluate(({ nativeImage }, png) => {
@@ -68,6 +86,10 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
       expect(alpha, `${name}: transparent corners and opaque center`).toEqual([0, 0, 0, 0, 255]);
     };
     await expect.poll(size).toEqual({ width: 360, height: 44 });
+    await drag(30);
+    const compactPosition = await position();
+    await reopen();
+    expect(await position()).toEqual(compactPosition);
     await expect(page.locator("body")).not.toHaveClass("expanded");
     const web = page.getByRole("button", { name: "联网搜索", exact: true }),
       bash = page.getByRole("button", { name: "本机工具", exact: true });
@@ -106,6 +128,9 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
     await page.emulateMedia({ colorScheme: "light" });
     await input.fill("一\n二\n三");
     await expect.poll(size).toEqual({ width: 360, height: 88 });
+    expect(await position()).toEqual(compactPosition);
+    await reopen();
+    expect(await position()).toEqual(compactPosition);
     await input.fill("多行内容\n".repeat(30));
     await expect.poll(size).toEqual({ width: 360, height: 184 });
     await input.fill("");
@@ -180,6 +205,7 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
       else await viewer.getByRole("button", { name: "关闭图片预览" }).click();
       await expect(viewer).toBeHidden();
       await expect.poll(size).toEqual({ width: 360, height: 144 });
+      expect(await position()).toEqual(compactPosition);
       await expect(input).toHaveValue("预览前的草稿\n第二行\n第三行");
       await expect(page.locator("#images img")).toHaveCount(2);
     }
@@ -196,6 +222,10 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
     await expect(page.locator("#stop")).toBeHidden();
     expect(api.requests).toHaveLength(1);
     await expect.poll(size).toEqual({ width: 660, height: 560 });
+    await drag(70);
+    const expandedPosition = await position();
+    await reopen();
+    expect(await position()).toEqual(expandedPosition);
     for (const colorScheme of ["light", "dark"] as const) {
       await page.emulateMedia({ colorScheme });
       await checkCorners(`expanded-${colorScheme}`);
@@ -256,6 +286,7 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
     await page.evaluate(() => window.quickChat.invoke("reset"));
     await expect(viewer).toBeHidden();
     await expect.poll(size).toEqual({ width: 360, height: 44 });
+    expect(await position()).toEqual(compactPosition);
     await expect(page.locator(".message")).toHaveCount(0);
     await expect(pin).toBeHidden();
     await expect(page.locator("#pin")).toHaveAttribute("aria-pressed", "false");
