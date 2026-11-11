@@ -18,6 +18,15 @@ test("dragged input stays at its horizontal position and grows upward", () => {
   assert.deepEqual(windowBounds(display, 360, 44, taller), moved);
 });
 
+test("both window modes share a bottom center and dragging either moves the other", () => {
+  const compact = { x: 400, y: 700, width: 360, height: 44 },
+    expanded = windowBounds(display, 660, 560, compact);
+  assert.deepEqual(expanded, { x: 250, y: 184, width: 660, height: 560 });
+  assert.deepEqual(windowBounds(display, 360, 44, expanded), compact);
+  assert.deepEqual(windowBounds(display, 360, 44, { ...expanded, x: 300, y: 150 }),
+    { x: 450, y: 666, width: 360, height: 44 });
+});
+
 test("remembered positions stay visible after a display is removed or resized", () => {
   assert.deepEqual(windowBounds(display, 660, 560, { x: -1200, y: 300, width: 660, height: 560 }),
     { x: 0, y: 290, width: 660, height: 560 });

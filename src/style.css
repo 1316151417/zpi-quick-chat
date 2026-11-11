@@ -30,6 +30,7 @@ body {
   height: 100%;
   overflow: hidden;
   border-radius: 22px;
+  transition: border-radius 180ms ease-out;
 }
 button {
   display: inline-grid;
@@ -152,6 +153,12 @@ textarea::placeholder { color: var(--muted); }
   scrollbar-gutter: stable;
   overflow-anchor: none;
   padding: 8px 18px 16px;
+}
+.expanded header, .expanded #messages { animation: reveal 180ms ease-out; }
+@keyframes reveal { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  #window { transition: none; }
+  .expanded header, .expanded #messages { animation: none; }
 }
 #messages:focus-visible { outline: none; }
 .expanded #composer-container { padding: 6px 14px 12px; max-height: calc(100% - 38px); overflow: auto; }

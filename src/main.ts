@@ -56,9 +56,8 @@ async function start() {
     occupied = false,
     compactHeight = 44,
     pinned = false;
-  const positions: { compact?: Electron.Rectangle; expanded?: Electron.Rectangle } = {};
+  let position: Electron.Rectangle | undefined;
   const bounds = (display: Electron.Display, wide: boolean) => {
-    const position = positions[wide ? "expanded" : "compact"];
     return windowBounds(
       position ? screen.getDisplayMatching(position) : display,
       wide ? 660 : 360,
@@ -76,6 +75,8 @@ async function start() {
     frame: false,
     // CSS draws the capsule/dialog corners; native corners add a second outline on macOS.
     roundedCorners: false,
+    // Native shadows can add a second rim around transparent content on macOS.
+    hasShadow: false,
     transparent: true,
     resizable: false,
     minimizable: false,
@@ -94,19 +95,72 @@ async function start() {
     },
   });
   let appliedBounds = win.getBounds(),
-    placedWide = false;
+    animation: ReturnType<typeof setInterval> | undefined,
+    animationTarget: Electron.Rectangle | undefined;
+  const cancelAnimation = () => {
+    clearInterval(animation);
+    animation = undefined;
+    animationTarget = undefined;
+  };
   const rememberPosition = () => {
     const current = win.getBounds();
     // Read the final native position: macOS will-move reports the pre-drag frame.
     // Compare against our last layout so programmatic moves do not become preferences.
-    if (current.x !== appliedBounds.x || current.y !== appliedBounds.y)
-      positions[placedWide ? "expanded" : "compact"] = { ...current };
+    if (current.x !== appliedBounds.x || current.y !== appliedBounds.y) {
+      position = { ...current };
+      cancelAnimation();
+    }
     appliedBounds = current;
     return current;
   };
+  const sameBounds = (a: Electron.Rectangle, b: Electron.Rectangle) =>
+    a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
+  const place = (next: Electron.Rectangle, animate = false) => {
+    if (animate && animationTarget && sameBounds(animationTarget, next)) return;
+    cancelAnimation();
+    const start = win.getBounds(),
+      wide = expanded || previewing,
+      minWidth = Math.min(wide ? 440 : 360, next.width),
+      minHeight = Math.min(wide ? 360 : 44, next.height);
+    const apply = (frame: Electron.Rectangle) => {
+      if (!sameBounds(win.getBounds(), frame)) win.setBounds(frame);
+      appliedBounds = win.getBounds();
+    };
+    const finish = () => {
+      apply(next);
+      win.setMinimumSize(minWidth, minHeight);
+      appliedBounds = win.getBounds();
+      cancelAnimation();
+    };
+    // Allow all intermediate frames before tightening the destination's minimum size.
+    win.setMinimumSize(Math.min(start.width, minWidth), Math.min(start.height, minHeight));
+    if (!animate || sameBounds(start, next) || (!win.isVisible() && !isolated) ||
+        systemPreferences.getAnimationSettings().prefersReducedMotion) {
+      finish();
+      return;
+    }
+    animationTarget = next;
+    const began = performance.now();
+    animation = setInterval(() => {
+      if (win.isDestroyed()) { cancelAnimation(); return; }
+      const current = rememberPosition();
+      // A manual move interrupts the animation and becomes the shared position.
+      if (!animation) {
+        place(bounds(screen.getDisplayMatching(current), expanded || previewing));
+        return;
+      }
+      const progress = Math.min(1, (performance.now() - began) / 180),
+        eased = 1 - (1 - progress) ** 3;
+      if (progress === 1) { finish(); return; }
+      const frame = { ...next };
+      for (const key of ["x", "y", "width", "height"] as const)
+        frame[key] = Math.round(start[key] + (next[key] - start[key]) * eased);
+      apply(frame);
+    }, 1000 / 60);
+  };
   let restoreFocus: (() => void) | undefined;
   const layout = (nextExpanded: boolean, height = compactHeight) => {
-    // Capture the previous mode before expanded/previewing changes its native size.
+    // Capture the final dragged frame before changing the native size.
     const current = rememberPosition();
     compactHeight = height;
     const changed = expanded !== nextExpanded;
@@ -116,13 +170,7 @@ async function start() {
     const display = screen.getDisplayMatching(current),
       wide = expanded || previewing,
       next = bounds(display, wide);
-    if (changed || current.width !== next.width) {
-      win.setMinimumSize(Math.min(wide ? 440 : 360, next.width), Math.min(wide ? 360 : 44, next.height));
-    }
-    if (current.x !== next.x || current.y !== next.y || current.width !== next.width || current.height !== next.height)
-      win.setBounds(next);
-    appliedBounds = win.getBounds();
-    placedWide = wide;
+    place(next, current.width !== next.width);
   };
   const activate = macQuickChatFocus(
     join(directory, "native"),
@@ -138,16 +186,10 @@ async function start() {
       win.webContents.send("quick-chat:snapshot", { ...chat.snapshot(), expanded, pinned });
     }
     if (!win.isVisible() || !win.isFocused()) {
-      const current = win.getBounds(),
-        display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()),
+      const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()),
         wide = expanded || previewing,
         next = bounds(display, wide);
-      if (next.width !== current.width || next.height !== current.height)
-        win.setMinimumSize(Math.min(wide ? 440 : 360, next.width), Math.min(wide ? 360 : 44, next.height));
-      if (current.x !== next.x || current.y !== next.y || current.width !== next.width || current.height !== next.height)
-        win.setBounds(next);
-      appliedBounds = win.getBounds();
-      placedWide = wide;
+      place(next);
     }
     if (isolated) return;
     const needsFocus = !win.isFocused();
@@ -158,6 +200,8 @@ async function start() {
   const hide = () => {
     if (!win.isDestroyed()) {
       rememberPosition();
+      // Never reopen at an unfinished animation frame.
+      if (animationTarget) place(animationTarget);
       win.hide();
     }
     restoreFocus?.();

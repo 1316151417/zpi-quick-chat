@@ -15,10 +15,10 @@ export function windowBounds(
     width,
     height,
     x: Math.round(Math.max(area.x, Math.min(
-      position?.x ?? display.bounds.x + (display.bounds.width - width) / 2,
+      position ? position.x + (position.width - width) / 2 : display.bounds.x + (display.bounds.width - width) / 2,
       area.x + area.width - width,
     ))),
-    // Keep the input bar's bottom edge in place as its draft grows or shrinks.
+    // Expand and collapse around the same bottom center, including draft height changes.
     y: Math.round(Math.max(area.y, Math.min(
       position ? position.y + position.height - height : area.y + area.height - gap - height,
       area.y + area.height - height,
