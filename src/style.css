@@ -13,6 +13,8 @@
   --secondary: #e6e6e6;
   --on-primary: #fff;
   --error: #914037;
+  /* Includes the 1px outer window border. Shared with native window placement. */
+  --expanded-composer-inset: 13px;
   color: var(--text);
   background: transparent;
 }
@@ -161,7 +163,7 @@ textarea::placeholder { color: var(--muted); }
   .expanded header, .expanded #messages { animation: none; }
 }
 #messages:focus-visible { outline: none; }
-.expanded #composer-container { padding: 6px 14px 12px; max-height: calc(100% - 38px); overflow: auto; }
+.expanded #composer-container { padding: 6px 14px calc(var(--expanded-composer-inset) - 1px); max-height: calc(100% - 38px); overflow: auto; }
 .expanded textarea { max-height: 160px; }
 .message { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
 .message.user {

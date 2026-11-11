@@ -27,6 +27,17 @@ test("both window modes share a bottom center and dragging either moves the othe
     { x: 450, y: 666, width: 360, height: 44 });
 });
 
+test("expanded composer padding does not offset the reopened input bar", () => {
+  const compact = { x: 400, y: 700, width: 360, height: 44 },
+    inset = 13,
+    expanded = windowBounds(display, 660, 560, compact, inset);
+  assert.deepEqual(expanded, { x: 250, y: 197, width: 660, height: 560 });
+  const moved = { ...expanded, x: 300, y: 150 },
+    reopened = windowBounds(display, 360, 44, { ...moved, y: moved.y - inset });
+  assert.deepEqual(reopened, { x: 450, y: 653, width: 360, height: 44 });
+  assert.equal(reopened.y + reopened.height, moved.y + moved.height - inset);
+});
+
 test("remembered positions stay visible after a display is removed or resized", () => {
   assert.deepEqual(windowBounds(display, 660, 560, { x: -1200, y: 300, width: 660, height: 560 }),
     { x: 0, y: 290, width: 660, height: 560 });

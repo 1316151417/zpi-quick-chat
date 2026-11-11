@@ -55,6 +55,7 @@ async function start() {
     hasMessages = false,
     occupied = false,
     compactHeight = 44,
+    expandedInset = 0,
     pinned = false;
   let position: Electron.Rectangle | undefined;
   const bounds = (display: Electron.Display, wide: boolean) => {
@@ -63,6 +64,7 @@ async function start() {
       wide ? 660 : 360,
       wide ? 560 : compactHeight,
       position,
+      expanded ? expandedInset : 0,
     );
   };
   const win = new BrowserWindow({
@@ -95,6 +97,7 @@ async function start() {
     },
   });
   let appliedBounds = win.getBounds(),
+    appliedInset = 0,
     animation: ReturnType<typeof setInterval> | undefined,
     animationTarget: Electron.Rectangle | undefined;
   const cancelAnimation = () => {
@@ -107,7 +110,8 @@ async function start() {
     // Read the final native position: macOS will-move reports the pre-drag frame.
     // Compare against our last layout so programmatic moves do not become preferences.
     if (current.x !== appliedBounds.x || current.y !== appliedBounds.y) {
-      position = { ...current };
+      // Store the composer's bottom, excluding the expanded window's outer padding.
+      position = { ...current, y: current.y - appliedInset };
       cancelAnimation();
     }
     appliedBounds = current;
@@ -122,6 +126,7 @@ async function start() {
       wide = expanded || previewing,
       minWidth = Math.min(wide ? 440 : 360, next.width),
       minHeight = Math.min(wide ? 360 : 44, next.height);
+    appliedInset = expanded ? expandedInset : 0;
     const apply = (frame: Electron.Rectangle) => {
       if (!sameBounds(win.getBounds(), frame)) win.setBounds(frame);
       appliedBounds = win.getBounds();
@@ -166,7 +171,7 @@ async function start() {
     const changed = expanded !== nextExpanded;
     expanded = nextExpanded;
     if (!expanded) pinned = false;
-    if (!changed && expanded) return;
+    if (!changed && expanded && appliedInset === expandedInset) return;
     const display = screen.getDisplayMatching(current),
       wide = expanded || previewing,
       next = bounds(display, wide);
@@ -369,12 +374,15 @@ async function start() {
           break;
         }
         case "resize": {
-          const value = input as { generation?: number; height?: number; occupied?: boolean } | null;
-          if (!value || typeof value.height !== "number" || !Number.isFinite(value.height) || typeof value.occupied !== "boolean")
+          const value = input as { generation?: number; height?: number; expandedInset?: number; occupied?: boolean } | null;
+          if (!value || typeof value.height !== "number" || !Number.isFinite(value.height) || typeof value.occupied !== "boolean" ||
+              typeof value.expandedInset !== "number" || !Number.isFinite(value.expandedInset) || value.expandedInset < 0 || value.expandedInset > 64)
             throw new Error("Invalid height");
           if (value.generation === chat.generation) {
             occupied = value.occupied;
+            expandedInset = value.expandedInset;
             if (!expanded && !previewing) layout(false, Math.max(44, Math.min(Math.ceil(value.height), 320)));
+            else if (expanded && appliedInset !== expandedInset) layout(true);
           }
           break;
         }

@@ -56,10 +56,12 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
       const { width, height } = BrowserWindow.getAllWindows()[0].getBounds();
       return { width, height };
     });
-    const position = () => application!.evaluate(({ BrowserWindow }) => {
-      const { x, y, width, height } = BrowserWindow.getAllWindows()[0].getBounds();
-      return { center: x + width / 2, bottom: y + height };
-    });
+    const position = async () => {
+      const frame = await application!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBounds());
+      const inset = await page.locator("#composer").evaluate((node) =>
+        document.body.classList.contains("expanded") ? innerHeight - node.getBoundingClientRect().bottom : 0);
+      return { center: frame.x + frame.width / 2, bottom: frame.y + frame.height - inset };
+    };
     const drag = (offset: number) => application!.evaluate(({ BrowserWindow, screen }, offset) => {
       const win = BrowserWindow.getAllWindows()[0],
         current = win.getBounds(),
@@ -313,10 +315,27 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
     expect(native).toEqual({ visible: false, registered: false });
     await page.getByRole("button", { name: "预览 one.png", exact: true }).click();
     await expect(viewer).toBeVisible();
-    await page.evaluate(() => window.quickChat.invoke("reset"));
+    // Exercise the visible-window reset branch without exposing a native test window.
+    await application.evaluate(async ({ BrowserWindow }) => {
+      const win = BrowserWindow.getAllWindows()[0], isVisible = win.isVisible;
+      win.isVisible = () => true;
+      try {
+        await win.webContents.executeJavaScript('window.quickChat.invoke("reset")');
+      } finally {
+        win.isVisible = isVisible;
+      }
+    });
     await expect(viewer).toBeHidden();
+    await expect(page.locator("body")).toHaveClass("expanded");
+    await expect.poll(size).toEqual({ width: 660, height: 560 });
+    const closedComposerPosition = await position();
+    expect(closedComposerPosition).toEqual(expandedPosition);
+    await reopen();
+    await expect(page.locator("body")).not.toHaveClass("expanded");
     await expect.poll(size).toEqual({ width: 360, height: 44 });
-    expect(await position()).toEqual(expandedPosition);
+    expect(await position()).toEqual(closedComposerPosition);
+    await reopen();
+    expect(await position()).toEqual(closedComposerPosition);
     await expect(page.locator(".message")).toHaveCount(0);
     await expect(pin).toBeHidden();
     await expect(page.locator("#pin")).toHaveAttribute("aria-pressed", "false");

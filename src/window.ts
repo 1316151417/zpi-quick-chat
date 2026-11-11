@@ -5,6 +5,7 @@ export function windowBounds(
   width: number,
   height: number,
   position?: Rectangle,
+  inputInset = 0,
 ): Rectangle {
   const area = display.workArea,
     bottomInset = Math.max(0, display.bounds.y + display.bounds.height - area.y - area.height),
@@ -18,9 +19,9 @@ export function windowBounds(
       position ? position.x + (position.width - width) / 2 : display.bounds.x + (display.bounds.width - width) / 2,
       area.x + area.width - width,
     ))),
-    // Expand and collapse around the same bottom center, including draft height changes.
+    // Align the composer's bottom center, accounting for the expanded window's padding.
     y: Math.round(Math.max(area.y, Math.min(
-      position ? position.y + position.height - height : area.y + area.height - gap - height,
+      (position ? position.y + position.height : area.y + area.height - gap) + inputInset - height,
       area.y + area.height - height,
     ))),
   };

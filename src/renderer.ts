@@ -655,6 +655,7 @@ function reportLayout() {
   const layout = {
     generation: state.generation,
     height: composer.offsetHeight,
+    expandedInset: parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--expanded-composer-inset")),
     occupied: Boolean(input.value || images.length || reading),
   };
   const key = JSON.stringify(layout);
