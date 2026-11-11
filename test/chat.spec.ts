@@ -65,8 +65,7 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
         current = win.getBounds(),
         area = screen.getDisplayMatching(current).workArea,
         next = { ...current, x: area.x + offset, y: area.y + area.height - current.height - offset };
-      // Exercise the manual-drag notification without showing or activating the window.
-      win.emit("will-move", { preventDefault() {} }, next);
+      // Change native coordinates without injecting a synthetic drag notification.
       win.setBounds(next);
     }, offset);
     const reopen = async () => {

@@ -93,19 +93,27 @@ async function start() {
       backgroundThrottling: false,
     },
   });
-  // Only manual dragging records a preference; programmatic layout must not overwrite it.
-  win.on("will-move", (_event, next) => {
-    positions[expanded || previewing ? "expanded" : "compact"] = { ...next };
-  });
+  let appliedBounds = win.getBounds(),
+    placedWide = false;
+  const rememberPosition = () => {
+    const current = win.getBounds();
+    // Read the final native position: macOS will-move reports the pre-drag frame.
+    // Compare against our last layout so programmatic moves do not become preferences.
+    if (current.x !== appliedBounds.x || current.y !== appliedBounds.y)
+      positions[placedWide ? "expanded" : "compact"] = { ...current };
+    appliedBounds = current;
+    return current;
+  };
   let restoreFocus: (() => void) | undefined;
   const layout = (nextExpanded: boolean, height = compactHeight) => {
+    // Capture the previous mode before expanded/previewing changes its native size.
+    const current = rememberPosition();
     compactHeight = height;
     const changed = expanded !== nextExpanded;
     expanded = nextExpanded;
     if (!expanded) pinned = false;
     if (!changed && expanded) return;
-    const current = win.getBounds(),
-      display = screen.getDisplayMatching(current),
+    const display = screen.getDisplayMatching(current),
       wide = expanded || previewing,
       next = bounds(display, wide);
     if (changed || current.width !== next.width) {
@@ -113,6 +121,8 @@ async function start() {
     }
     if (current.x !== next.x || current.y !== next.y || current.width !== next.width || current.height !== next.height)
       win.setBounds(next);
+    appliedBounds = win.getBounds();
+    placedWide = wide;
   };
   const activate = macQuickChatFocus(
     join(directory, "native"),
@@ -121,6 +131,7 @@ async function start() {
   );
   const show = () => {
     if (win.isDestroyed()) return;
+    rememberPosition();
     if (!win.isVisible() && keepExpanded && !hasMessages && !occupied) {
       keepExpanded = false;
       layout(false);
@@ -135,6 +146,8 @@ async function start() {
         win.setMinimumSize(Math.min(wide ? 440 : 360, next.width), Math.min(wide ? 360 : 44, next.height));
       if (current.x !== next.x || current.y !== next.y || current.width !== next.width || current.height !== next.height)
         win.setBounds(next);
+      appliedBounds = win.getBounds();
+      placedWide = wide;
     }
     if (isolated) return;
     const needsFocus = !win.isFocused();
@@ -143,7 +156,10 @@ async function start() {
     win.focus();
   };
   const hide = () => {
-    if (!win.isDestroyed()) win.hide();
+    if (!win.isDestroyed()) {
+      rememberPosition();
+      win.hide();
+    }
     restoreFocus?.();
     restoreFocus = undefined;
   };
