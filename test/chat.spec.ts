@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
 import { constants } from "node:fs";
 import { server } from "./server.ts";
+import { defaultWindowSize, windowSizes } from "../src/window.ts";
 const require = createRequire(import.meta.url);
 test("hidden isolated window chats through SDK, resets and exposes no desktop settings", async () => {
   const dir = await mkdtemp(join(tmpdir(), "zpi-quick-chat-test-")),
@@ -48,6 +49,11 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
       timeout: 15000,
     });
     const page = await application.firstWindow();
+    const display = await application.evaluate(({ BrowserWindow, screen }) =>
+      screen.getDisplayMatching(BrowserWindow.getAllWindows()[0].getBounds()));
+    const defaults = defaultWindowSize(display), compactWidth = defaults.width,
+      expandedWidth = compactWidth + 2 * windowSizes.expandedSideInset,
+      expandedHeight = defaults.expandedHeight;
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await page.waitForLoadState("domcontentloaded");
@@ -56,6 +62,50 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
       const { width, height } = BrowserWindow.getAllWindows()[0].getBounds();
       return { width, height };
     });
+    const resizable = () => application!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isResizable());
+    const checkViewport = async () => {
+      await expect.poll(async () => {
+        const native = await size();
+        return page.evaluate((native) => {
+          const frame = document.getElementById("window")!.getBoundingClientRect(),
+            composer = document.getElementById("composer")!.getBoundingClientRect();
+          return {
+            viewportMatches: innerWidth === native.width && innerHeight === native.height,
+            frameMatches: frame.width === native.width && frame.height === native.height,
+            composerVisible: composer.left >= 0 && composer.right <= innerWidth && composer.top >= 0 && composer.bottom <= innerHeight,
+          };
+        }, native);
+      }).toEqual({ viewportMatches: true, frameMatches: true, composerVisible: true });
+    };
+    const composerWidth = () => page.locator("#composer").evaluate((node) => node.getBoundingClientRect().width);
+    const composerInsets = () => page.locator("#composer").evaluate((node) => {
+      const box = node.getBoundingClientRect();
+      return { left: box.left, right: innerWidth - box.right };
+    });
+    const resize = (width: number, height: number) => application!.evaluate(({ BrowserWindow }, size) => {
+      BrowserWindow.getAllWindows()[0].setSize(size.width, size.height);
+    }, { width, height });
+    const focusLoss = (event: "blur" | "did-resign-active", focused: boolean, regain?: "window" | "app" | "show") =>
+      application!.evaluate(async ({ app, BrowserWindow }, { event, focused, regain }) => {
+        const win = BrowserWindow.getAllWindows()[0],
+          original = { isVisible: win.isVisible, isFocused: win.isFocused, hide: win.hide };
+        let hides = 0;
+        // Exercise the real handlers without showing a native window or stealing OS focus.
+        win.isVisible = () => true;
+        win.isFocused = () => focused;
+        win.hide = () => { hides++; };
+        try {
+          if (event === "blur") win.emit("blur");
+          else app.emit("did-resign-active");
+          if (regain === "window") win.emit("focus");
+          else if (regain === "app") app.emit("did-become-active");
+          else if (regain === "show") app.emit("second-instance", {}, [], "");
+          await new Promise<void>((resolve) => setImmediate(resolve));
+          return hides;
+        } finally {
+          Object.assign(win, original);
+        }
+      }, { event, focused, regain });
     const position = async () => {
       const frame = await application!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBounds());
       const inset = await page.locator("#composer").evaluate((node) =>
@@ -70,6 +120,15 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
       // Change native coordinates without injecting a synthetic drag notification.
       win.setBounds(next);
     }, offset);
+    const crossDisplay = () => application!.evaluate(({ BrowserWindow, screen }) => {
+      const win = BrowserWindow.getAllWindows()[0], current = win.getBounds(),
+        source = screen.getDisplayMatching(current),
+        target = screen.getAllDisplays().find((display) => display.id !== source.id &&
+          display.workArea.width >= current.width && display.workArea.height >= current.height);
+      if (!target) return false;
+      win.setPosition(target.workArea.x + 40, target.workArea.y + 40);
+      return true;
+    });
     const reopen = async () => {
       await page.evaluate(() => window.quickChat.invoke("hide"));
       // Isolated mode runs the real placement path while keeping native visibility disabled.
@@ -86,7 +145,19 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
       }, screenshot.toString("base64"));
       expect(alpha, `${name}: transparent corners and opaque center`).toEqual([0, 0, 0, 0, 255]);
     };
-    await expect.poll(size).toEqual({ width: 360, height: 44 });
+    await expect.poll(size).toEqual({ width: compactWidth, height: 44 });
+    expect(await resizable()).toBe(false);
+    expect(await composerWidth()).toBe(compactWidth);
+    expect(await focusLoss("blur", false)).toBe(1);
+    expect(await focusLoss("blur", true)).toBe(0);
+    expect(await focusLoss("did-resign-active", true)).toBe(1);
+    expect(await focusLoss("blur", false, "window")).toBe(0);
+    expect(await focusLoss("did-resign-active", true, "app")).toBe(0);
+    expect(await focusLoss("did-resign-active", true, "show")).toBe(0);
+    if (await crossDisplay()) {
+      await reopen();
+      expect(await size()).toEqual({ width: compactWidth, height: 44 });
+    }
     await drag(220);
     const compactPosition = await position();
     await reopen();
@@ -131,14 +202,14 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
     await checkCorners("compact-dark");
     await page.emulateMedia({ colorScheme: "light" });
     await input.fill("一\n二\n三");
-    await expect.poll(size).toEqual({ width: 360, height: 88 });
+    await expect.poll(size).toEqual({ width: compactWidth, height: 88 });
     expect(await position()).toEqual(compactPosition);
     await reopen();
     expect(await position()).toEqual(compactPosition);
     await input.fill("多行内容\n".repeat(30));
-    await expect.poll(size).toEqual({ width: 360, height: 184 });
+    await expect.poll(size).toEqual({ width: compactWidth, height: 184 });
     await input.fill("");
-    await expect.poll(size).toEqual({ width: 360, height: 44 });
+    await expect.poll(size).toEqual({ width: compactWidth, height: 44 });
     await input.fill("已有草稿");
     await application.evaluate(({ BrowserWindow }) => {
       BrowserWindow.getAllWindows()[0].webContents.send("quick-chat:draft", { text: "带入内容🙂" });
@@ -187,10 +258,10 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
     });
     await pasteImages(pictures.map((picture) => ({ name: picture.name, mimeType: "image/png", buffer: Buffer.from(picture.bytes) })));
     await expect(page.locator("#images img")).toHaveCount(2);
-    await expect.poll(size).toEqual({ width: 360, height: 100 });
+    await expect.poll(size).toEqual({ width: compactWidth, height: 100 });
     const viewer = page.getByRole("dialog", { name: "图片预览" });
     await input.fill("预览前的草稿\n第二行\n第三行");
-    await expect.poll(size).toEqual({ width: 360, height: 144 });
+    await expect.poll(size).toEqual({ width: compactWidth, height: 144 });
     for (const [index, picture] of pictures.entries()) {
       const motion = index === 0 ? application.evaluate(async ({ BrowserWindow, systemPreferences }) => {
         const frames: { center: number; bottom: number; width: number }[] = [],
@@ -207,10 +278,11 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
       // Hiding during the transition must settle it before the next reveal.
       if (index === 1) await reopen();
       await expect.poll(size).toEqual({ width: 660, height: 560 });
+      await checkViewport();
       expect(await position()).toEqual(compactPosition);
       if (motion) {
         const { frames, reduced } = await motion;
-        if (!reduced) expect(frames.some(({ width }) => width > 360 && width < 660)).toBe(true);
+        if (!reduced) expect(frames.some(({ width }) => width > compactWidth && width < 660)).toBe(true);
         for (const frame of frames) {
           expect(Math.abs(frame.center - compactPosition.center)).toBeLessThanOrEqual(1);
           expect(Math.abs(frame.bottom - compactPosition.bottom)).toBeLessThanOrEqual(1);
@@ -229,7 +301,7 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
       if (index === 0) await page.keyboard.press("Escape");
       else await viewer.getByRole("button", { name: "关闭图片预览" }).click();
       await expect(viewer).toBeHidden();
-      await expect.poll(size).toEqual({ width: 360, height: 144 });
+      await expect.poll(size).toEqual({ width: compactWidth, height: 144 });
       expect(await position()).toEqual(compactPosition);
       await expect(input).toHaveValue("预览前的草稿\n第二行\n第三行");
       await expect(page.locator("#images img")).toHaveCount(2);
@@ -238,7 +310,7 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
     await page.getByRole("button", { name: "预览 one.png", exact: true }).click();
     await page.keyboard.press("Escape");
     await expect(viewer).toBeHidden();
-    await expect.poll(size).toEqual({ width: 360, height: 144 });
+    await expect.poll(size).toEqual({ width: compactWidth, height: 144 });
     expect(await position()).toEqual(compactPosition);
     await input.fill("Translate hello");
     await input.evaluate((node) => {
@@ -252,8 +324,42 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
     await expect(page.locator(".user").getByRole("button", { name: "复制", exact: true })).toBeVisible();
     await expect(page.locator("#stop")).toBeHidden();
     expect(api.requests).toHaveLength(1);
-    await expect.poll(size).toEqual({ width: 660, height: 560 });
+    await expect.poll(size).toEqual({ width: expandedWidth, height: expandedHeight });
+    await checkViewport();
     expect(await position()).toEqual(compactPosition);
+    expect(await resizable()).toBe(false);
+    expect(await composerWidth()).toBe(compactWidth);
+    expect(await composerInsets()).toEqual({ left: 16, right: 16 });
+    // Exercise the real pointer handlers; transparent windows keep native resizing disabled.
+    const grip = await page.locator('[data-resize="se"]').boundingBox();
+    await page.mouse.move(grip!.x + 6, grip!.y + 6);
+    await page.mouse.down();
+    await page.mouse.move(grip!.x + 46, grip!.y + 36);
+    await page.mouse.up();
+    await expect.poll(size).toEqual({ width: expandedWidth + 40, height: expandedHeight + 30 });
+    await checkViewport();
+    // Native size changes must survive layout reports, snapshots, preview and reopening.
+    await resize(720, 600);
+    await expect.poll(composerWidth).toBe(688);
+    await checkViewport();
+    expect(await composerInsets()).toEqual({ left: 16, right: 16 });
+    await input.fill("调整窗口后的草稿");
+    await page.evaluate(() => window.quickChat.invoke("snapshot"));
+    await reopen();
+    expect(await size()).toEqual({ width: 720, height: 600 });
+    if (await crossDisplay()) {
+      const moved = await position();
+      await reopen();
+      expect(await size()).toEqual({ width: 720, height: 600 });
+      expect(await position()).toEqual(moved);
+    }
+    await page.getByRole("button", { name: "预览 one.png", exact: true }).click();
+    await expect(viewer).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(viewer).toBeHidden();
+    expect(await size()).toEqual({ width: 720, height: 600 });
+    await input.fill("");
+    await resize(expandedWidth, expandedHeight);
     await drag(100);
     const expandedPosition = await position();
     await reopen();
@@ -265,8 +371,11 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
     await page.emulateMedia({ colorScheme: "light" });
     await expect(pin).toBeVisible();
     await expect(pin).toHaveAttribute("aria-pressed", "false");
+    expect(await focusLoss("did-resign-active", true)).toBe(1);
     await pin.click();
     await expect(pin).toHaveAttribute("aria-pressed", "true");
+    expect(await focusLoss("did-resign-active", true)).toBe(0);
+    expect(await focusLoss("blur", false)).toBe(0);
     await pin.click();
     await expect(pin).toHaveAttribute("aria-pressed", "false");
     await pin.click();
@@ -284,7 +393,7 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
     expect(await page.evaluate(() => window.getSelection()!.toString())).toBe("你好，世界");
     await input.fill("多行输入\n".repeat(30));
     expect(await input.evaluate((node) => node.getBoundingClientRect().height)).toBe(160);
-    expect(await size()).toEqual({ width: 660, height: 560 });
+    expect(await size()).toEqual({ width: expandedWidth, height: expandedHeight });
     await input.fill("Continue");
     await input.press("Enter");
     await expect(page.locator(".assistant").last()).toContainText("继续对话");
@@ -313,6 +422,11 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
       registered: globalShortcut.isRegistered("Alt+Space"),
     }));
     expect(native).toEqual({ visible: false, registered: false });
+    // Shrink below the original default: collapsing must keep the actual composer width.
+    const retainedWidth = 392;
+    await resize(retainedWidth, 600);
+    const collapsedComposerWidth = await composerWidth();
+    const resizedPosition = await position();
     await page.getByRole("button", { name: "预览 one.png", exact: true }).click();
     await expect(viewer).toBeVisible();
     // Exercise the visible-window reset branch without exposing a native test window.
@@ -327,15 +441,18 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
     });
     await expect(viewer).toBeHidden();
     await expect(page.locator("body")).toHaveClass("expanded");
-    await expect.poll(size).toEqual({ width: 660, height: 560 });
+    await expect.poll(size).toEqual({ width: retainedWidth, height: 600 });
     const closedComposerPosition = await position();
-    expect(closedComposerPosition).toEqual(expandedPosition);
+    expect(closedComposerPosition).toEqual(resizedPosition);
     await reopen();
     await expect(page.locator("body")).not.toHaveClass("expanded");
-    await expect.poll(size).toEqual({ width: 360, height: 44 });
+    await expect.poll(size).toEqual({ width: collapsedComposerWidth, height: 44 });
+    expect(await resizable()).toBe(false);
+    expect(await composerWidth()).toBe(collapsedComposerWidth);
     expect(await position()).toEqual(closedComposerPosition);
     await reopen();
     expect(await position()).toEqual(closedComposerPosition);
+    expect(await composerWidth()).toBe(collapsedComposerWidth);
     await expect(page.locator(".message")).toHaveCount(0);
     await expect(pin).toBeHidden();
     await expect(page.locator("#pin")).toHaveAttribute("aria-pressed", "false");
@@ -497,7 +614,7 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
     await page.evaluate(() => window.quickChat.invoke("reset"));
     await expect(web).toHaveAttribute("aria-pressed", "false");
     await expect(bash).toHaveAttribute("aria-pressed", "false");
-    await expect.poll(size).toEqual({ width: 360, height: 44 });
+    await expect.poll(size).toEqual({ width: collapsedComposerWidth, height: 44 });
     // Keep producing real SSE while the user scrolls up by less than the old 80px threshold.
     const longReply = Array.from({ length: 150 }, (_, index) => `第 ${index + 1} 段。**持续输出**，检查阅读位置保持不变。\n\n`).join("");
     await page.emulateMedia({ colorScheme: "light" });
@@ -505,6 +622,10 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
     await input.fill("输出长文以测试滚动\n" + "用户输入内容\n".repeat(30));
     await input.press("Enter");
     const expandUser = page.getByRole("button", { name: "展开消息", exact: true });
+    await expect.poll(size).toEqual({ width: retainedWidth, height: 600 });
+    expect(await resizable()).toBe(false);
+    await checkViewport();
+    expect(await composerWidth()).toBe(collapsedComposerWidth);
     await expect(expandUser).toBeVisible();
     await expandUser.click();
     await expect(page.getByRole("button", { name: "收起消息", exact: true })).toHaveAttribute("aria-expanded", "true");

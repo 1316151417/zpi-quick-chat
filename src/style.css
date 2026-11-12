@@ -65,7 +65,7 @@ header button { width: 28px; height: 28px; color: var(--muted); }
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-height: 44px;
+  min-height: var(--composer-min-height);
   margin: 0;
   padding: 7px 8px 7px 14px;
   border: 1px solid var(--border);
@@ -138,6 +138,18 @@ textarea::placeholder { color: var(--muted); }
   -webkit-app-region: no-drag;
 }
 .expanded #window { border: 1px solid var(--border); border-radius: 16px; background: var(--background); }
+#resize-handles { display: none; position: fixed; inset: 0; z-index: 2; pointer-events: none; }
+.expanded #resize-handles { display: block; }
+#resize-handles > div { position: absolute; pointer-events: auto; touch-action: none; -webkit-app-region: no-drag; }
+[data-resize="n"], [data-resize="s"] { left: 12px; right: 12px; height: 6px; cursor: ns-resize; }
+[data-resize="e"], [data-resize="w"] { top: 12px; bottom: 12px; width: 6px; cursor: ew-resize; }
+[data-resize="n"], [data-resize="ne"], [data-resize="nw"] { top: 0; }
+[data-resize="s"], [data-resize="se"], [data-resize="sw"] { bottom: 0; }
+[data-resize="e"], [data-resize="ne"], [data-resize="se"] { right: 0; }
+[data-resize="w"], [data-resize="nw"], [data-resize="sw"] { left: 0; }
+[data-resize="ne"], [data-resize="sw"], [data-resize="nw"], [data-resize="se"] { width: 12px; height: 12px; }
+[data-resize="ne"], [data-resize="sw"] { cursor: nesw-resize; }
+[data-resize="nw"], [data-resize="se"] { cursor: nwse-resize; }
 .expanded header {
   display: flex;
   justify-content: space-between;
@@ -163,7 +175,7 @@ textarea::placeholder { color: var(--muted); }
   .expanded header, .expanded #messages { animation: none; }
 }
 #messages:focus-visible { outline: none; }
-.expanded #composer-container { padding: 6px 14px calc(var(--expanded-composer-inset) - 1px); max-height: calc(100% - 38px); overflow: auto; }
+.expanded #composer-container { padding: 6px calc(var(--expanded-composer-side-inset) - 1px) calc(var(--expanded-composer-inset) - 1px); max-height: calc(100% - 38px); overflow: auto; }
 .expanded textarea { max-height: 160px; }
 .message { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
 .message.user {

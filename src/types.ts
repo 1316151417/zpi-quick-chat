@@ -58,7 +58,7 @@ export interface TextUpdate {
   delta: string;
 }
 export type ChatUpdate = Snapshot | ({ type: "text" } & TextUpdate);
-export type Action = "send" | "stop" | "reset" | "hide" | "quit" | "snapshot" | "resize" | "copy" | "pin" | "preview" | "tools" | "open-url";
+export type Action = "send" | "stop" | "reset" | "hide" | "quit" | "snapshot" | "resize" | "resize-window" | "copy" | "pin" | "preview" | "tools" | "open-url";
 export type Reply = { ok: true } | { ok: false; error: string };
 export interface Bridge {
   invoke(action: Action, input?: unknown): Promise<Reply>;

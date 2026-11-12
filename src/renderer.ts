@@ -1,12 +1,15 @@
 import type { Bridge, ChatMessage, ImageInput, Snapshot, ToolCall, WebSource } from "./types.ts";
 import { inputLimits, validateImageCount, validateImageFile, validateImages } from "./input.ts";
 import { answerText, markdown } from "./markdown.ts";
+import { windowSizes } from "./window.ts";
 declare global {
   interface Window {
     quickChat: Bridge;
   }
 }
 const bridge = window.quickChat;
+document.documentElement.style.setProperty("--composer-min-height", `${windowSizes.compactHeight}px`);
+document.documentElement.style.setProperty("--expanded-composer-side-inset", `${windowSizes.expandedSideInset}px`);
 const icon = (body: string, size = 16) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 const copyIcon = icon('<rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2"/>', 14);
 const checkIcon = icon('<path d="m20 6-11 11-5-5"/>', 14);
@@ -649,6 +652,28 @@ pin.onclick = () => {
   void invoke("pin", { generation: state.generation, pinned: !state.pinned });
   input.focus();
 };
+for (const handle of document.querySelectorAll<HTMLElement>("[data-resize]")) {
+  let pointer: number | undefined;
+  const resize = (phase: "start" | "move" | "end", event: PointerEvent) => {
+    void invoke("resize-window", { generation: state.generation, phase, edge: handle.dataset.resize,
+      x: event.screenX, y: event.screenY });
+  };
+  handle.onpointerdown = (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    pointer = event.pointerId;
+    handle.setPointerCapture(pointer);
+    resize("start", event);
+  };
+  handle.onpointermove = (event) => {
+    if (pointer === event.pointerId) resize("move", event);
+  };
+  handle.onlostpointercapture = handle.onpointerup = handle.onpointercancel = (event) => {
+    if (pointer !== event.pointerId) return;
+    pointer = undefined;
+    resize("end", event);
+  };
+}
 let reportedLayout = "";
 function reportLayout() {
   if (state.generation < 0 || viewer.open) return;

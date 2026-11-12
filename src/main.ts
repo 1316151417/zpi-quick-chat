@@ -16,11 +16,11 @@ import { Chat } from "./chat.ts";
 import { readConfig } from "./config.ts";
 import { QuickChatCapture } from "./capture.ts";
 import { macQuickChatCapture } from "./mac-capture.ts";
-import { macQuickChatFocus } from "./focus.ts";
+import { macQuickChatFocus, macQuickChatFocusWatch } from "./focus.ts";
 import type { ImageInput, ToolOptions } from "./types.ts";
 import { publicWebUrl } from "./web.ts";
 import { validateImages, validateImagePixels } from "./input.ts";
-import { windowBounds } from "./window.ts";
+import { defaultWindowSize, resizedWindowBounds, resizeEdges, windowBounds, windowSizes, type ResizeEdge } from "./window.ts";
 
 const directory = dirname(fileURLToPath(import.meta.url));
 const config = readConfig(process.env);
@@ -54,23 +54,29 @@ async function start() {
     keepExpanded = false,
     hasMessages = false,
     occupied = false,
-    compactHeight = 44,
+    compactHeight: number = windowSizes.compactHeight,
     expandedInset = 0,
     pinned = false;
   let position: Electron.Rectangle | undefined;
+  let preferredDefaults: ReturnType<typeof defaultWindowSize> | undefined;
+  let expandedSize: Pick<Electron.Rectangle, "width" | "height"> | undefined;
   const bounds = (display: Electron.Display, wide: boolean) => {
+    const targetDisplay = position ? screen.getDisplayMatching(position) : display,
+      defaults = preferredDefaults ?? defaultWindowSize(targetDisplay),
+      composerWidth = expandedSize ? Math.max(1, expandedSize.width - 2 * windowSizes.expandedSideInset) : defaults.width;
     return windowBounds(
-      position ? screen.getDisplayMatching(position) : display,
-      wide ? 660 : 360,
-      wide ? 560 : compactHeight,
+      targetDisplay,
+      expanded ? expandedSize?.width ?? composerWidth + 2 * windowSizes.expandedSideInset : wide ? windowSizes.previewWidth : composerWidth,
+      expanded ? expandedSize?.height ?? defaults.expandedHeight : wide ? windowSizes.previewHeight : compactHeight,
       position,
       expanded ? expandedInset : 0,
+      defaults.bottomGap,
     );
   };
   const win = new BrowserWindow({
     ...bounds(screen.getDisplayNearestPoint(screen.getCursorScreenPoint()), false),
     minWidth: 360,
-    minHeight: 44,
+    minHeight: windowSizes.compactHeight,
     maxWidth: 1100,
     show: false,
     focusable: !isolated,
@@ -80,6 +86,7 @@ async function start() {
     // Native shadows can add a second rim around transparent content on macOS.
     hasShadow: false,
     transparent: true,
+    // Transparent windows use renderer edge grips; changing native resize styles can clip the surface.
     resizable: false,
     minimizable: false,
     maximizable: false,
@@ -100,6 +107,7 @@ async function start() {
     appliedInset = 0,
     animation: ReturnType<typeof setInterval> | undefined,
     animationTarget: Electron.Rectangle | undefined;
+  let resizeDrag: { frame: Electron.Rectangle; edge: ResizeEdge; x: number; y: number } | undefined;
   const cancelAnimation = () => {
     clearInterval(animation);
     animation = undefined;
@@ -109,9 +117,13 @@ async function start() {
     const current = win.getBounds();
     // Read the final native position: macOS will-move reports the pre-drag frame.
     // Compare against our last layout so programmatic moves do not become preferences.
-    if (current.x !== appliedBounds.x || current.y !== appliedBounds.y) {
+    if (current.x !== appliedBounds.x || current.y !== appliedBounds.y ||
+        current.width !== appliedBounds.width || current.height !== appliedBounds.height) {
       // Store the composer's bottom, excluding the expanded window's outer padding.
+      // Freeze the source screen's defaults when dragged, including across displays.
+      preferredDefaults ??= defaultWindowSize(screen.getDisplayMatching(appliedBounds));
       position = { ...current, y: current.y - appliedInset };
+      if (expanded && !animation) expandedSize = { width: current.width, height: current.height };
       cancelAnimation();
     }
     appliedBounds = current;
@@ -124,8 +136,8 @@ async function start() {
     cancelAnimation();
     const start = win.getBounds(),
       wide = expanded || previewing,
-      minWidth = Math.min(wide ? 440 : 360, next.width),
-      minHeight = Math.min(wide ? 360 : 44, next.height);
+      minWidth = Math.min(360 + (expanded ? 2 * windowSizes.expandedSideInset : 0), next.width),
+      minHeight = Math.min(wide ? windowSizes.minimumExpandedHeight : windowSizes.compactHeight, next.height);
     appliedInset = expanded ? expandedInset : 0;
     const apply = (frame: Electron.Rectangle) => {
       if (!sameBounds(win.getBounds(), frame)) win.setBounds(frame);
@@ -163,19 +175,28 @@ async function start() {
       apply(frame);
     }, 1000 / 60);
   };
-  let restoreFocus: (() => void) | undefined;
+  let restoreFocus: (() => void) | undefined,
+    focusRevision = 0;
   const layout = (nextExpanded: boolean, height = compactHeight) => {
     // Capture the final dragged frame before changing the native size.
     const current = rememberPosition();
     compactHeight = height;
     const changed = expanded !== nextExpanded;
+    if (changed && expanded) {
+      // Collapse to the actual composer, including after resizing or switching screens.
+      // Use the settled destination if an expansion was interrupted before its last frame.
+      const frame = animationTarget ?? current;
+      expandedSize = { width: frame.width, height: frame.height };
+      position = { ...frame, y: frame.y - appliedInset };
+      preferredDefaults ??= defaultWindowSize(screen.getDisplayMatching(frame));
+    }
     expanded = nextExpanded;
     if (!expanded) pinned = false;
     if (!changed && expanded && appliedInset === expandedInset) return;
     const display = screen.getDisplayMatching(current),
       wide = expanded || previewing,
       next = bounds(display, wide);
-    place(next, current.width !== next.width);
+    place(next, changed || current.width !== next.width);
   };
   const activate = macQuickChatFocus(
     join(directory, "native"),
@@ -184,6 +205,7 @@ async function start() {
   );
   const show = () => {
     if (win.isDestroyed()) return;
+    focusRevision++;
     rememberPosition();
     if (!win.isVisible() && keepExpanded && !hasMessages && !occupied) {
       keepExpanded = false;
@@ -201,8 +223,11 @@ async function start() {
     win.show();
     if (needsFocus) restoreFocus = activate() ?? restoreFocus;
     win.focus();
+    focusWatch?.reset();
   };
   const hide = () => {
+    focusRevision++;
+    resizeDrag = undefined;
     if (!win.isDestroyed()) {
       rememberPosition();
       // Never reopen at an unfinished animation frame.
@@ -212,14 +237,30 @@ async function start() {
     restoreFocus?.();
     restoreFocus = undefined;
   };
-  win.on("blur", () => {
-    // Cocoa may deliver the previous hide's blur during a new synchronous show.
-    queueMicrotask(() => {
-      if (win.isDestroyed() || win.isFocused()) return;
+  const onFocusLoss = (application = false) => {
+    const revision = focusRevision;
+    // Let native focus changes settle. A later show/focus invalidates an old notification.
+    setImmediate(() => {
+      if (revision !== focusRevision || win.isDestroyed() || (!application && win.isFocused())) return;
       restoreFocus = undefined;
       if ((!expanded || !pinned) && win.isVisible()) hide();
     });
-  });
+  };
+  win.on("blur", () => onFocusLoss());
+  win.on("focus", () => { focusRevision++; });
+  // A macOS panel can retain key-window status while another application becomes active.
+  // Application deactivation must not depend on BrowserWindow.isFocused().
+  app.on("did-resign-active", () => onFocusLoss(true));
+  app.on("did-become-active", () => { focusRevision++; });
+  const focusWatch = !isolated && process.platform === "darwin" ? macQuickChatFocusWatch(
+    join(directory, "native"),
+    () => !win.isDestroyed() && win.isVisible(),
+    () => {
+      restoreFocus = undefined;
+      if (!expanded || !pinned) hide();
+    },
+    (error) => console.error("Window focus watcher:", error),
+  ) : undefined;
   let testOptions = {};
   if (isolated && process.env.ZPI_QUICK_CHAT_TEST_API) {
     const url = new URL(process.env.ZPI_QUICK_CHAT_TEST_API);
@@ -293,11 +334,12 @@ async function start() {
       win.webContents.send("quick-chat:draft", { error: error.message });
     });
   const reset = () => {
+    resizeDrag = undefined;
     keepExpanded = expanded && win.isVisible();
     previewing = false;
     pinned = false;
     occupied = false;
-    compactHeight = 44;
+    compactHeight = windowSizes.compactHeight;
     void chat.reset().catch((error) => console.error("Conversation cleanup:", error));
     show();
   };
@@ -348,6 +390,7 @@ async function start() {
           if (!value || typeof value.open !== "boolean") throw new Error("Invalid preview state");
           if (value.generation !== chat.generation) throw new Error("会话已切换，请重试");
           previewing = value.open;
+          resizeDrag = undefined;
           layout(expanded);
           break;
         }
@@ -373,6 +416,27 @@ async function start() {
           await shell.openExternal(url);
           break;
         }
+        case "resize-window": {
+          const value = input as { generation?: number; phase?: string; edge?: string; x?: number; y?: number } | null;
+          if (!value || !["start", "move", "end"].includes(value.phase ?? "") ||
+              !resizeEdges.includes(value.edge as ResizeEdge) ||
+              typeof value.x !== "number" || !Number.isFinite(value.x) || Math.abs(value.x) > 1000000 ||
+              typeof value.y !== "number" || !Number.isFinite(value.y) || Math.abs(value.y) > 1000000)
+            throw new Error("Invalid window resize");
+          if (value.generation !== chat.generation) throw new Error("会话已切换，请重试");
+          if (!expanded || previewing) { resizeDrag = undefined; break; }
+          if (value.phase === "start") {
+            if (animationTarget) place(animationTarget);
+            resizeDrag = { frame: rememberPosition(), edge: value.edge as ResizeEdge, x: value.x, y: value.y };
+          } else if (resizeDrag) {
+            if (value.phase === "end") { resizeDrag = undefined; break; }
+            const next = resizedWindowBounds(screen.getDisplayMatching(resizeDrag.frame), resizeDrag.frame,
+              resizeDrag.edge, value.x - resizeDrag.x, value.y - resizeDrag.y);
+            win.setBounds(next);
+            rememberPosition();
+          }
+          break;
+        }
         case "resize": {
           const value = input as { generation?: number; height?: number; expandedInset?: number; occupied?: boolean } | null;
           if (!value || typeof value.height !== "number" || !Number.isFinite(value.height) || typeof value.occupied !== "boolean" ||
@@ -381,7 +445,7 @@ async function start() {
           if (value.generation === chat.generation) {
             occupied = value.occupied;
             expandedInset = value.expandedInset;
-            if (!expanded && !previewing) layout(false, Math.max(44, Math.min(Math.ceil(value.height), 320)));
+            if (!expanded && !previewing) layout(false, Math.max(windowSizes.compactHeight, Math.min(Math.ceil(value.height), 320)));
             else if (expanded && appliedInset !== expandedInset) layout(true);
           }
           break;
@@ -409,6 +473,7 @@ async function start() {
     event.preventDefault();
     quitting = true;
     globalShortcut.unregisterAll();
+    focusWatch?.stop();
     capture.dispose();
     hide();
     void chat.close().finally(() => {

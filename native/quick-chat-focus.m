@@ -1,6 +1,17 @@
 #import <AppKit/AppKit.h>
 #include <node_api.h>
 
+static id outsideMouseMonitor;
+static id activationObserver;
+static uint64_t outsideEventCount;
+
+static void stopFocusWatch(void *data) {
+  if (outsideMouseMonitor) [NSEvent removeMonitor:outsideMouseMonitor];
+  if (activationObserver) [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:activationObserver];
+  outsideMouseMonitor = nil;
+  activationObserver = nil;
+}
+
 static BOOL checked(napi_env env, napi_status status) {
   if (status == napi_ok) return YES;
   bool pending = false;
@@ -60,9 +71,40 @@ static napi_value activate(napi_env env, napi_callback_info info) {
   return result;
 }
 
+static napi_value focusLossCount(napi_env env, napi_callback_info info) {
+  // Non-activating panels can receive keyboard input while their application is
+  // already inactive. Clicking the same external app then emits neither Electron
+  // blur nor application-deactivation. Observe those external mouse events too.
+  if (!outsideMouseMonitor) {
+    outsideMouseMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:
+      NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown | NSEventMaskOtherMouseDown
+      handler:^(NSEvent *event) { outsideEventCount++; }];
+    if (!outsideMouseMonitor) {
+      napi_throw_error(env, NULL, "Unable to observe outside mouse clicks");
+      return NULL;
+    }
+    activationObserver = [NSWorkspace.sharedWorkspace.notificationCenter
+      addObserverForName:NSWorkspaceDidActivateApplicationNotification object:nil
+      queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *notification) {
+        NSRunningApplication *application = notification.userInfo[NSWorkspaceApplicationKey];
+        if (application && application.processIdentifier != NSProcessInfo.processInfo.processIdentifier)
+          outsideEventCount++;
+      }];
+    if (!checked(env, napi_add_env_cleanup_hook(env, stopFocusWatch, NULL))) {
+      stopFocusWatch(NULL);
+      return NULL;
+    }
+  }
+  napi_value result;
+  if (!checked(env, napi_create_double(env, (double)outsideEventCount, &result))) return NULL;
+  return result;
+}
+
 NAPI_MODULE_INIT() {
   napi_value function;
   if (!checked(env, napi_create_function(env, "activate", NAPI_AUTO_LENGTH, activate, NULL, &function))) return NULL;
   if (!checked(env, napi_set_named_property(env, exports, "activate", function))) return NULL;
+  if (!checked(env, napi_create_function(env, "focusLossCount", NAPI_AUTO_LENGTH, focusLossCount, NULL, &function))) return NULL;
+  if (!checked(env, napi_set_named_property(env, exports, "focusLossCount", function))) return NULL;
   return exports;
 }
