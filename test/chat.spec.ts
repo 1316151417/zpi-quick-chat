@@ -317,8 +317,8 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
       for (let index = 0; index < 2; index++)
         node.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
     });
-    await expect(page.locator(".assistant .message-text")).toContainText("你");
     await expect(page.locator("#stop")).toBeVisible();
+    await expect(page.locator(".assistant .message-text")).toContainText("你");
     await expect(page.locator(".assistant")).toContainText("你好，世界");
     await expect(page.locator(".assistant").getByRole("button", { name: "复制", exact: true })).toBeVisible();
     await expect(page.locator(".user").getByRole("button", { name: "复制", exact: true })).toBeVisible();
@@ -657,6 +657,85 @@ test("hidden isolated window chats through SDK, resets and exposes no desktop se
     expect(JSON.stringify(api.requests.at(-1)?.messages)).toContain("zpi.environment");
     expect(JSON.stringify(api.requests.at(-1)?.messages)).toContain(dir);
     await page.evaluate(() => window.quickChat.invoke("reset"));
+
+    // Esc must stop a real running SDK request before it is allowed to hide the window.
+    api.queueCalls([], "持续输出以测试停止。".repeat(100), { delayMs: 20, chunkSize: 8, initialDelayMs: 0, hold: true });
+    await input.fill("测试 Esc 停止");
+    await input.press("Enter");
+    await expect(page.locator("#stop")).toBeVisible();
+    await expect.poll(() => page.locator(".assistant .message-text").textContent()).not.toBe("");
+    const hiding = await application.evaluate(async ({ BrowserWindow }) => {
+      const win = BrowserWindow.getAllWindows()[0], original = win.hide;
+      let hides = 0;
+      win.hide = () => { hides++; };
+      const escape = () => win.webContents.executeJavaScript(
+        'document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))');
+      try {
+        await escape();
+        const deadline = Date.now() + 5000;
+        while (await win.webContents.executeJavaScript('!document.getElementById("stop").hidden')) {
+          if (Date.now() > deadline) throw new Error("Esc did not stop the task");
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        const afterStop = hides;
+        await escape();
+        return { afterStop, afterSecondEscape: hides };
+      } finally { win.hide = original; }
+    });
+    expect(hiding).toEqual({ afterStop: 0, afterSecondEscape: 1 });
+    await expect(page.locator(".process > summary")).toContainText("已停止");
+    await expect(page.locator("#error-indicator")).toBeHidden();
+    await expect(page.locator("#error")).toBeHidden();
+    api.queueCalls([], "停止后继续正常对话", { delayMs: 0, hold: false });
+    await input.fill("继续");
+    await input.press("Enter");
+    await expect(page.locator(".assistant").last()).toContainText("停止后继续正常对话");
+    await expect(page.locator("#stop")).toBeHidden();
+    await page.evaluate(() => window.quickChat.invoke("reset"));
+    await expect.poll(size).toEqual({ width: collapsedComposerWidth, height: 44 });
+
+    // Compact-mode notices float above the bar, then collapse to a badge and disappear.
+    await page.clock.install();
+    const beforeNotice = await position();
+    const actionPositions = () => page.locator("#web, #bash, #send").evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().x));
+    const beforeActions = await actionPositions();
+    await pasteImages([{ name: "unsupported.svg", mimeType: "image/svg+xml", buffer: Buffer.from("<svg/>") }]);
+    await expect(page.locator("#error")).toBeVisible();
+    await expect(page.locator("#error")).toHaveText("不支持此图片格式");
+    await expect(page.locator("#error-indicator")).toBeVisible();
+    expect(await page.locator("#error-indicator").evaluate((node) =>
+      node.getBoundingClientRect().right <= document.getElementById("web")!.getBoundingClientRect().left)).toBe(true);
+    expect(await actionPositions()).toEqual(beforeActions);
+    expect(await page.locator("#composer").evaluate((node) => node.getBoundingClientRect().height)).toBe(44);
+    await expect.poll(() => page.locator("#error").evaluate((node) => {
+      const box = node.getBoundingClientRect(), trigger = document.getElementById("error-indicator")!.getBoundingClientRect();
+      return box.top >= 12 && box.bottom <= trigger.top - 8 && box.left >= 12 && box.right <= innerWidth - 12 &&
+        (Math.abs(box.right - trigger.right) <= 1 || Math.abs(box.left - 12) <= 1);
+    })).toBe(true);
+    expect(await position()).toEqual(beforeNotice);
+    const reservedSize = await size();
+    await page.screenshot({ path: test.info().outputPath("error-notice.png") });
+    await page.emulateMedia({ colorScheme: "dark" });
+    await expect(page.locator("#error")).toHaveCSS("background-color", "rgb(43, 43, 43)");
+    await expect(page.locator("#error")).toHaveCSS("color", "rgb(248, 248, 248)");
+    await page.screenshot({ path: test.info().outputPath("error-notice-dark.png") });
+    await page.clock.fastForward(3000);
+    await expect(page.locator("#error")).toBeHidden();
+    await expect(page.locator("#error-indicator")).toBeVisible();
+    expect(await size()).toEqual(reservedSize);
+    await page.evaluate(() => window.quickChat.invoke("snapshot"));
+    await expect(page.locator("#error")).toBeHidden();
+    await page.locator("#error-indicator").hover();
+    await expect(page.locator("#error")).toBeVisible();
+    await page.clock.fastForward(5000);
+    await expect(page.locator("#error-indicator")).toBeVisible();
+    expect(await size()).toEqual(reservedSize);
+    await input.hover();
+    await page.clock.fastForward(100);
+    await expect(page.locator("#error-indicator")).toBeHidden();
+    expect(await actionPositions()).toEqual(beforeActions);
+    await expect.poll(size).toEqual({ width: collapsedComposerWidth, height: 44 });
+    expect(await position()).toEqual(beforeNotice);
     expect(errors).toEqual([]);
   } finally {
     if (application) {

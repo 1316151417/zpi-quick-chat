@@ -2,6 +2,7 @@ import type { Bridge, ChatMessage, ImageInput, Snapshot, ToolCall, WebSource } f
 import { inputLimits, validateImageCount, validateImageFile, validateImages } from "./input.ts";
 import { answerText, markdown } from "./markdown.ts";
 import { windowSizes } from "./window.ts";
+import { createErrorNotice } from "./error-notice.ts";
 declare global {
   interface Window {
     quickChat: Bridge;
@@ -21,6 +22,7 @@ const input = element<HTMLTextAreaElement>("input"),
   composer = element<HTMLFormElement>("composer"),
   messages = element("messages"),
   error = element("error"),
+  errorIndicator = element<HTMLButtonElement>("error-indicator"),
   previews = element("images"),
   stop = element<HTMLButtonElement>("stop"),
   send = element<HTMLButtonElement>("send"),
@@ -46,9 +48,39 @@ let state: Snapshot = { generation: -1, messages: [], busy: false, model: "", re
   composing = false,
   frame = 0,
   configuring: Promise<boolean> | undefined;
-function showError(value: unknown) {
-  error.textContent = value instanceof Error ? value.message : String(value);
-  error.hidden = !error.textContent;
+let stopping: number | undefined;
+function placeError() {
+  if (!error.matches(":popover-open")) return;
+  const anchor = errorIndicator.getBoundingClientRect();
+  error.style.bottom = `${Math.min(innerHeight - anchor.top + 8, Math.max(12, innerHeight - error.offsetHeight - 12))}px`;
+  error.style.right = `${Math.min(Math.max(12, innerWidth - anchor.right), Math.max(12, innerWidth - error.offsetWidth - 12))}px`;
+}
+const errorNotice = createErrorNotice((message, details) => {
+  error.textContent = message;
+  errorIndicator.hidden = !message;
+  setText(element("error-description"), message);
+  error.style.visibility = details ? "visible" : "hidden";
+  error.setAttribute("aria-hidden", String(!details));
+  if (details) error.setAttribute("role", "tooltip");
+  else error.removeAttribute("role");
+  // Keep the measured bubble for the badge's entire lifetime, so hover never resizes the window.
+  if (message) { error.showPopover(); placeError(); }
+  else error.hidePopover();
+  reportLayout();
+});
+const showError = errorNotice.show;
+errorIndicator.onclick = () => errorNotice.setFocused(true);
+for (const target of [errorIndicator, error]) {
+  target.onpointerenter = () => errorNotice.setHovered(true);
+  target.onpointerleave = () => errorNotice.setHovered(false);
+  target.onfocus = () => errorNotice.setFocused(true);
+  target.onblur = () => errorNotice.setFocused(false);
+  target.onkeydown = (event) => {
+    if (event.key !== "Escape" || state.busy || stopping === state.generation || error.style.visibility !== "visible" || event.isComposing || composing || event.keyCode === 229) return;
+    event.preventDefault();
+    event.stopPropagation();
+    errorNotice.dismissDetails();
+  };
 }
 async function invoke(action: Parameters<Bridge["invoke"]>[0], value?: unknown) {
   const generation = state.generation;
@@ -64,6 +96,7 @@ async function invoke(action: Parameters<Bridge["invoke"]>[0], value?: unknown) 
 function updateComposer() {
   stop.hidden = !state.busy;
   send.hidden = state.busy;
+  stop.disabled = stopping === state.generation;
   send.disabled = sending === state.generation || reading > 0 || (!input.value.trim() && !images.length);
   web.disabled = bash.disabled = configuring !== undefined || sending === state.generation;
   reportLayout();
@@ -131,7 +164,7 @@ function renderCall(node: HTMLElement, call: ToolCall) {
   setText(summary.querySelector("strong")!, terminal ? running ? "正在执行" : "终端" : search ? running ? "正在搜索" : "联网搜索" : running ? "正在读取" : file ? "读取文件" : "读取网页");
   setText(summary.querySelector(".tool-summary-text")!, primary);
   summary.setAttribute("title", primary);
-  setText(summary.querySelector(".tool-summary-status")!, running ? "" : call.error ? "未完成" : search ? `${call.sources?.length ?? 0} 个来源` : terminal ? "" : "已完成");
+  setText(summary.querySelector(".tool-summary-status")!, call.interrupted ? "已停止" : running ? "" : call.error ? "未完成" : search ? `${call.sources?.length ?? 0} 个来源` : terminal ? "" : "已完成");
   if (terminal) {
     setText(node.querySelector(".tool-command")!, `$ ${call.input}`);
     setText(node.querySelector(".tool-output")!, call.output ?? "执行中…");
@@ -405,7 +438,10 @@ messages.addEventListener("scroll", () => {
 bridge.onSnapshot((snapshot) => {
   if (snapshot.generation < state.generation) return;
   const changed = snapshot.generation !== state.generation;
+  const previousError = state.error;
   if (changed) {
+    errorNotice.clear();
+    stopping = undefined;
     viewer.close();
     sourcesPopover.hidePopover();
     sourceTrigger = undefined;
@@ -505,7 +541,7 @@ bridge.onSnapshot((snapshot) => {
       }
     }
   }
-  showError(snapshot.error ?? "");
+  if (snapshot.error && snapshot.error !== previousError) showError(snapshot.error);
   if (changed) renderImages();
   updateComposer();
   if (snapshot.busy && !workTimer) workTimer = setInterval(() => {
@@ -562,6 +598,7 @@ composer.onsubmit = async (event) => {
   if (state.busy || sending === generation || reading || (!text.trim() && !pending.length)) return;
   following = canResume = true;
   sending = generation;
+  errorNotice.clear();
   updateComposer();
   const accepted = await invoke("send", { text, images: pending, generation });
   if (generation !== state.generation) return;
@@ -597,7 +634,16 @@ input.onpaste = (event) => {
   void addFiles(files);
 };
 element("new").onclick = () => void invoke("reset");
-stop.onclick = () => void invoke("stop");
+async function stopTask() {
+  const generation = state.generation;
+  if (!state.busy || stopping === generation) return;
+  stopping = generation;
+  updateComposer();
+  await invoke("stop");
+  if (stopping === generation) stopping = undefined;
+  updateComposer();
+}
+stop.onclick = () => void stopTask();
 for (const [name, button] of [["web", web], ["bash", bash]] as const) {
   button.onclick = async () => {
     if (configuring || state.messages.length || sending === state.generation) return;
@@ -611,7 +657,9 @@ for (const [name, button] of [["web", web], ["bash", bash]] as const) {
   };
 }
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !viewer.open && !event.defaultPrevented && !event.repeat && !event.isComposing && !composing && event.keyCode !== 229) {
+  if (event.key === "Escape" && !event.defaultPrevented && !event.repeat && !event.isComposing && !composing && event.keyCode !== 229) {
+    if (state.busy || stopping === state.generation) { event.preventDefault(); void stopTask(); return; }
+    if (viewer.open) return;
     event.preventDefault();
     if (sourcesPopover.matches(":popover-open")) { sourcesPopover.hidePopover(); sourceTrigger?.focus(); return; }
     void invoke("hide");
@@ -620,7 +668,7 @@ document.addEventListener("keydown", (event) => {
 window.addEventListener("focus", () => {
   if (!viewer.open && !sourcesPopover.matches(":popover-open")) input.focus();
 });
-window.addEventListener("resize", () => { followOutput(); placeSources(); });
+window.addEventListener("resize", () => { followOutput(); placeSources(); placeError(); });
 element("close-sources").onclick = () => { sourcesPopover.hidePopover(); sourceTrigger?.focus(); };
 sourcesPopover.addEventListener("toggle", () => {
   sourceTrigger?.setAttribute("aria-expanded", String(sourcesPopover.matches(":popover-open")));
@@ -679,7 +727,7 @@ function reportLayout() {
   if (state.generation < 0 || viewer.open) return;
   const layout = {
     generation: state.generation,
-    height: composer.offsetHeight,
+    height: composer.offsetHeight + (!state.expanded && error.matches(":popover-open") ? Math.min(172, error.offsetHeight + 12) : 0),
     expandedInset: parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--expanded-composer-inset")),
     occupied: Boolean(input.value || images.length || reading),
   };
@@ -687,6 +735,7 @@ function reportLayout() {
   if (key === reportedLayout) return;
   reportedLayout = key;
   void invoke("resize", layout);
+  placeError();
   followOutput();
 }
 const contentObserver = new ResizeObserver((entries) => {

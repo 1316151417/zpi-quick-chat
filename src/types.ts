@@ -27,6 +27,7 @@ export interface ToolCall {
   output?: string;
   images?: ImageInput[];
   error?: boolean;
+  interrupted?: boolean;
   sources?: WebSource[];
 }
 export interface ChatMessage {

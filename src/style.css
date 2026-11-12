@@ -13,6 +13,8 @@
   --secondary: #e6e6e6;
   --on-primary: #fff;
   --error: #914037;
+  --tooltip: #f0f0f0;
+  --tooltip-text: #0d0d0d;
   /* Includes the 1px outer window border. Shared with native window placement. */
   --expanded-composer-inset: 13px;
   color: var(--text);
@@ -29,6 +31,7 @@ body {
 #window {
   display: flex;
   flex-direction: column;
+  justify-content: flex-end;
   height: 100%;
   overflow: hidden;
   border-radius: 22px;
@@ -128,15 +131,27 @@ textarea::placeholder { color: var(--muted); }
   line-height: 1;
 }
 #error {
-  color: var(--error);
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: max-content;
+  max-width: min(320px, calc(100vw - 24px));
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--tooltip);
+  box-shadow: 0 2px 8px #00000014;
+  color: var(--tooltip-text);
   font-size: 12px;
-  line-height: 1.4;
+  line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  max-height: 64px;
+  max-height: 160px;
   overflow: auto;
   -webkit-app-region: no-drag;
 }
+#error-description { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+#error-indicator { width: 20px; height: 20px; margin-bottom: 4px; align-self: flex-end; color: var(--error); }
 .expanded #window { border: 1px solid var(--border); border-radius: 16px; background: var(--background); }
 #resize-handles { display: none; position: fixed; inset: 0; z-index: 2; pointer-events: none; }
 .expanded #resize-handles { display: block; }
@@ -333,5 +348,7 @@ body:has(dialog[open]) #window { visibility: hidden; }
     --secondary: #363636;
     --on-primary: #000;
     --error: #f0a299;
+    --tooltip: #2b2b2b;
+    --tooltip-text: #f8f8f8;
   }
 }

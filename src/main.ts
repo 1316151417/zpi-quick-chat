@@ -445,7 +445,7 @@ async function start() {
           if (value.generation === chat.generation) {
             occupied = value.occupied;
             expandedInset = value.expandedInset;
-            if (!expanded && !previewing) layout(false, Math.max(windowSizes.compactHeight, Math.min(Math.ceil(value.height), 320)));
+            if (!expanded && !previewing) layout(false, Math.max(windowSizes.compactHeight, Math.min(Math.ceil(value.height), 512)));
             else if (expanded && appliedInset !== expandedInset) layout(true);
           }
           break;

@@ -12,6 +12,7 @@
       <section id="images" aria-label="待发送图片"></section>
       <div id="input-row">
         <textarea id="input" rows="1" maxlength="32000" placeholder="输入消息…" aria-label="输入内容" autofocus></textarea>
+        <button id="error-indicator" type="button" aria-label="查看错误原因" aria-describedby="error-description" hidden><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg></button>
         <div id="tool-options" aria-label="本次会话工具">
           <button id="web" type="button" aria-label="联网搜索" aria-pressed="false" title="启用联网搜索"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"/></svg></button>
           <button id="bash" type="button" aria-label="本机工具" aria-pressed="false" title="启用本机工具"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 11 2-2-2-2M11 13h4"/><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/></svg></button>
@@ -19,10 +20,11 @@
         <button id="send" type="submit" aria-label="发送" title="发送" disabled><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 7-7 7 7M12 5v14"/></svg></button>
         <button id="stop" type="button" aria-label="停止" title="停止生成" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg></button>
       </div>
-      <div id="error" role="alert" hidden></div>
     </form>
   </div>
   </div>
+  <span id="error-description" role="alert"></span>
+  <div id="error" aria-hidden="true" popover="manual"></div>
   <div id="resize-handles" aria-hidden="true">
     <div data-resize="n"></div><div data-resize="ne"></div><div data-resize="e"></div><div data-resize="se"></div>
     <div data-resize="s"></div><div data-resize="sw"></div><div data-resize="w"></div><div data-resize="nw"></div>

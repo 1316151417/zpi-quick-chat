@@ -20,6 +20,11 @@ class Inputs implements AsyncIterable<SDKUserMessage> {
     this.closed = true;
     this.wake?.();
   }
+  cancelPending() {
+    if (!this.values.length) return false;
+    this.values = [];
+    return true;
+  }
   async *[Symbol.asyncIterator]() {
     while (!this.closed) {
       if (this.values.length) yield this.values.shift()!;
@@ -101,8 +106,10 @@ export class Chat {
           (message.images ?? []).reduce((size, image) => size + image.data.length, 0),
         0,
       );
-    if (this.state.messages.length >= inputLimits.messages || bytes > inputLimits.conversationBytes)
-      throw new Error("会话内容较多，请新建对话后再发送");
+    if (this.state.messages.length >= inputLimits.messages)
+      throw new Error("消息已达 200 条，请新建对话");
+    if (bytes > inputLimits.conversationBytes)
+      throw new Error("会话内容超过 32 MiB，请新建对话");
     if (!this.query) {
       const input = new Inputs();
       const { web, bash } = this.state.tools;
@@ -172,7 +179,8 @@ export class Chat {
         }
         const reason =
           failure instanceof Error ? failure.message : failure === undefined ? "" : String(failure);
-        this.state.error = [reason || this.state.error, "会话已结束，请新建对话后再发送"].filter(Boolean).join("\n");
+        this.state.error = assistant?.status === "interrupted" ? undefined :
+          [reason || this.state.error, "会话已结束，请新建对话后再发送"].filter(Boolean).join("\n");
         this.publish();
       }
     }
@@ -213,6 +221,7 @@ export class Chat {
             id: call.id, name: call.name,
             offset: assistant.text.length,
             input: String(call.input[call.name === "Bash" ? "command" : call.name === "Read" ? "file_path" : call.name === "web_search" ? "query" : "url"] ?? "").slice(0, 16000),
+            ...(assistant.status === "interrupted" ? { interrupted: true, error: false, output: "已停止" } : {}),
           });
       }
       if (calls.length) this.publish();
@@ -221,6 +230,7 @@ export class Chat {
         if (block.type !== "tool_result") continue;
         const call = assistant.calls?.find((call) => call.id === block.tool_use_id);
         if (!call) continue;
+        if (call.interrupted) continue;
         const output = typeof block.content === "string" ? block.content : block.content
           .filter((item) => item.type === "text").map((item) => item.text).join("\n");
         call.output = output.length > 16000 ? output.slice(0, 16000) + "\n[输出已截断]" : output;
@@ -237,15 +247,30 @@ export class Chat {
       assistant.status ??= message.subtype === "success" ? "completed" : "error";
       assistant.endedAt = Date.now();
       for (const call of assistant.calls ?? []) {
-        if (call.output === undefined) { call.output = "执行已停止或未完成"; call.error = true; }
+        if (call.output === undefined) { call.output = "执行未完成"; call.error = true; }
       }
-      if (message.subtype !== "success") this.state.error = message.errors.join("\n");
+      if (message.subtype !== "success" && assistant.status !== "interrupted") this.state.error = message.errors.join("\n");
       this.publish();
     }
   }
   async stop() {
     const assistant = this.state.messages.at(-1);
-    if (this.state.busy && assistant?.role === "assistant") assistant.status = "interrupted";
+    if (!this.state.busy || assistant?.role !== "assistant" || assistant.status === "interrupted") return;
+    assistant.status = "interrupted";
+    this.state.error = undefined;
+    for (const call of assistant.calls ?? []) {
+      if (call.output !== undefined) continue;
+      call.interrupted = true;
+      call.error = false;
+      call.output = "已停止";
+    }
+    if (this.input?.cancelPending()) {
+      this.state.busy = false;
+      assistant.endedAt = Date.now();
+      this.publish();
+      return;
+    }
+    this.publish();
     await this.query?.interrupt();
   }
   async reset() {

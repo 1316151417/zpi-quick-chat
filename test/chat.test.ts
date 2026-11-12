@@ -293,6 +293,9 @@ test("Stop cancels a running Bash process and the conversation remains usable", 
     await f.chat.stop();
     await waitFor(() => !f.chat.snapshot().busy);
     assert.equal(f.chat.snapshot().messages.at(-1)?.status, "interrupted");
+    assert.equal(f.chat.snapshot().error, undefined);
+    assert.equal(f.chat.snapshot().messages.at(-1)?.calls?.[0].interrupted, true);
+    assert.equal(f.chat.snapshot().messages.at(-1)?.calls?.[0].error, false);
     await waitFor(() => { try { process.kill(pid, 0); return false; } catch { return true; } });
     assert.equal(existsSync(join(f.dir, "late.txt")), false);
     f.chat.send("Continue after stopping");
@@ -466,6 +469,8 @@ test("streaming can stop, resume, and reset without leaking old deltas", async (
     assert.equal(f.chat.snapshot().busy, true);
     await f.chat.stop();
     await waitFor(() => !f.chat.snapshot().busy);
+    assert.equal(f.chat.snapshot().error, undefined);
+    assert.equal(f.chat.snapshot().messages.at(-1)?.status, "interrupted");
     f.chat.send("Continue after stop");
     await waitFor(() => f.chat.snapshot().messages.at(-1)?.text === "继续对话");
     const resetting = f.chat.reset();
@@ -479,4 +484,23 @@ test("streaming can stop, resume, and reset without leaking old deltas", async (
   } finally {
     await f.close();
   }
+});
+
+test("stopping before initialization cancels queued input without showing an error or executing tools", async () => {
+  const f = await fixture({ calls: [{ name: "Bash", input: { command: "touch should-not-run.txt" } }] });
+  try {
+    f.chat.configure({ web: false, bash: true });
+    f.chat.send("Stop immediately");
+    await f.chat.stop();
+    assert.equal(f.chat.snapshot().busy, false);
+    assert.equal(f.chat.snapshot().error, undefined);
+    assert.equal(f.chat.snapshot().messages.at(-1)?.status, "interrupted");
+    f.api.queueCalls([], "继续对话");
+    f.chat.send("Continue after stopping");
+    await waitFor(() => !f.chat.snapshot().busy);
+    assert.equal(f.api.requests.length, 1);
+    assert.equal(existsSync(join(f.dir, "should-not-run.txt")), false);
+    assert.equal(f.chat.snapshot().messages.at(-1)?.text, "继续对话");
+    assert.equal(f.chat.snapshot().error, undefined);
+  } finally { await f.close(); }
 });
