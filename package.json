@@ -9,9 +9,7 @@
   "files": [
     "bin",
     "dist",
-    "README.md",
-    "NOTICE",
-    "docs"
+    "NOTICE"
   ],
   "engines": {
     "node": ">=24 <25"
