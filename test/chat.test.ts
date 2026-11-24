@@ -124,6 +124,17 @@ test("the production DeepSeek transport keeps the SDK cwd context in plain and w
   });
 });
 
+test("DeepSeek completion preserves the original newline across text blocks", async () => {
+  const f = await fixture({ nativeDeepSeek: true, replyBlocks: ["1. 啊啊啊\n", "2. 啊啊啊"] });
+  try {
+    f.chat.send("输出两项编号列表");
+    await waitFor(() => !f.chat.snapshot().busy);
+    const assistant = f.chat.snapshot().messages.at(-1);
+    assert.equal(assistant?.status, "completed");
+    assert.equal(assistant.text, "1. 啊啊啊\n2. 啊啊啊");
+  } finally { await f.close(); }
+});
+
 test("tool choices lock only after accepted input, and reset clears both choices synchronously", async () => {
   const f = await fixture();
   try {

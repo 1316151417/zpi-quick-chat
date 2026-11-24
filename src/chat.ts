@@ -208,10 +208,11 @@ export class Chat {
         delta,
       });
     } else if (message.type === "assistant") {
+      // Concatenate text blocks exactly as their deltas were streamed.
       const text = message.message.content
         .filter((block) => block.type === "text")
         .map((block) => block.text)
-        .join("\n");
+        .join("");
       assistant.text = [this.roundPrefix, text].filter(Boolean).join("\n\n");
       const calls = message.message.content.filter((block) => block.type === "tool_use");
       for (const call of calls) {

@@ -9,6 +9,7 @@ export interface ServerOptions {
   initialDelayMs?: number;
   calls?: { name: string; input: Record<string, unknown> }[];
   reply?: string;
+  replyBlocks?: readonly string[];
 }
 export async function server(options: ServerOptions = {}) {
   const requests: Record<string, unknown>[] = [];
@@ -43,12 +44,16 @@ export async function server(options: ServerOptions = {}) {
     const call = options.calls?.[callIndex++];
     if (request.url?.endsWith("/messages")) {
       const event = (value: { type: string; [key: string]: unknown }) => `event: ${value.type}\ndata: ${JSON.stringify(value)}\n\n`;
-      const text = call ? "我先检查。" : options.reply ?? (requests.length === 1 ? "你好，世界" : "继续对话");
+      const textBlocks = call ? ["我先检查。"] : options.replyBlocks ?? [
+        options.reply ?? (requests.length === 1 ? "你好，世界" : "继续对话"),
+      ];
       response.end([
         { type: "message_start", message: { id: `reply-${requests.length}`, type: "message", role: "assistant", model: "deepseek-flash", content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 0 } } },
-        { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
-        { type: "content_block_delta", index: 0, delta: { type: "text_delta", text } },
-        { type: "content_block_stop", index: 0 },
+        ...textBlocks.flatMap((text, index) => [
+          { type: "content_block_start", index, content_block: { type: "text", text: "" } },
+          { type: "content_block_delta", index, delta: { type: "text_delta", text } },
+          { type: "content_block_stop", index },
+        ]),
         ...(call ? [
           { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: `call-${requests.length}`, name: call.name, input: {} } },
           { type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: JSON.stringify(call.input) } },
