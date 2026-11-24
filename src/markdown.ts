@@ -21,7 +21,9 @@ function detachTrailingListParagraph(token: Token): Tokens.Paragraph | undefined
   if (block.type !== "text" && block.type !== "paragraph") return;
   const inline: Token[] | undefined = block.tokens;
   if (!inline) return;
-  const hardBreak = inline.findIndex((token) => token.type === "br");
+  const hardBreak = inline.findIndex(
+    (token) => token.type === "br" && (token.raw.endsWith("  \n") || token.raw === "\\\n"),
+  );
   if (hardBreak < 1 || hardBreak === inline.length - 1) return;
 
   const tail = inline.splice(hardBreak).slice(1);
@@ -31,6 +33,7 @@ function detachTrailingListParagraph(token: Token): Tokens.Paragraph | undefined
 
 const parser = new Marked({
   gfm: true,
+  breaks: true,
   hooks: {
     processAllTokens(tokens) {
       for (let index = 0; index < tokens.length; index++) {

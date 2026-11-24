@@ -11,6 +11,13 @@ test("Markdown renders headings, emphasis, lists, quotes, tables, and unfinished
   assert.match(html, /&lt;安全&gt;/);
 });
 
+test("plain line breaks are visible in a chat reply", () => {
+  const lines = ["是打算打算", "1.啊啊啊", "2.啊啊啊", "是多少打算"];
+  const source = lines.join("\n");
+  assert.equal(markdown(source), `<p>${lines.join("<br>")}</p>\n`);
+  assert.equal(answerText(source), source);
+});
+
 test("an unindented line after a hard break at the end of a numbered list renders as a paragraph", () => {
   const list = "是打算打算\n\n1. 啊啊啊\n2. 啊啊啊";
   const expected = markdown(list + "\n\n是多少打算");
@@ -24,7 +31,9 @@ test("an unindented line after a hard break at the end of a numbered list render
 test("numbered list continuations and Markdown examples retain their formatting", () => {
   const list = "1. 第一项\n2. 第二项";
   assert.match(markdown(list + "  \n   补充说明"), /<li>第二项<br>补充说明<\/li>/);
-  assert.match(markdown(list + "\n补充说明"), /<li>第二项\n补充说明<\/li>/);
+  for (const softBreak of ["\n", " \n"]) {
+    assert.match(markdown(list + softBreak + "补充说明"), /<li>第二项<br>补充说明<\/li>/);
+  }
   assert.match(markdown(list + " `行内代码  \n下一行`"), /<li>第二项 <code>行内代码\s+下一行<\/code><\/li>/);
   assert.match(markdown("```md\n" + list + "  \n示例\n```"), /<pre><code>1\. 第一项\n2\. 第二项  \n示例<\/code>/);
 });
