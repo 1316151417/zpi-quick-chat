@@ -11,6 +11,24 @@ test("Markdown renders headings, emphasis, lists, quotes, tables, and unfinished
   assert.match(html, /&lt;安全&gt;/);
 });
 
+test("an unindented line after a hard break at the end of a numbered list renders as a paragraph", () => {
+  const list = "是打算打算\n\n1. 啊啊啊\n2. 啊啊啊";
+  const expected = markdown(list + "\n\n是多少打算");
+  for (const hardBreak of ["  \n", "\\\n"]) {
+    const source = list + hardBreak + "是多少打算";
+    assert.equal(markdown(source), expected);
+    assert.equal(answerText(source), source);
+  }
+});
+
+test("numbered list continuations and Markdown examples retain their formatting", () => {
+  const list = "1. 第一项\n2. 第二项";
+  assert.match(markdown(list + "  \n   补充说明"), /<li>第二项<br>补充说明<\/li>/);
+  assert.match(markdown(list + "\n补充说明"), /<li>第二项\n补充说明<\/li>/);
+  assert.match(markdown(list + " `行内代码  \n下一行`"), /<li>第二项 <code>行内代码\s+下一行<\/code><\/li>/);
+  assert.match(markdown("```md\n" + list + "  \n示例\n```"), /<pre><code>1\. 第一项\n2\. 第二项  \n示例<\/code>/);
+});
+
 test("model HTML, unsafe links, image alt text, and code cannot become executable markup", () => {
   const html = markdown('<script>alert(1)</script>\n\n<img src="https://example.com/x" onerror="alert(1)">\n\n[x](javascript:alert%281%29) [file](file:///etc/hosts) [encoded](jav&#x61;script:alert%281%29)\n\n![<img onerror=x>](https://example.com/image)\n\n```html\n<button onclick="bad()">x</button>\n```');
   assert.doesNotMatch(html, /<(?:script|img|iframe|style)\b|href="(?:javascript|file|data):|<button onclick/);

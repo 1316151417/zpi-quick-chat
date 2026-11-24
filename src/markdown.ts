@@ -1,4 +1,4 @@
-import { Marked, Renderer } from "marked";
+import { Marked, Renderer, type Token, type Tokens } from "marked";
 import type { WebSource } from "./types.ts";
 
 const escape = (text: string) => text.replace(/[&<>"']/g, (value) =>
@@ -11,8 +11,35 @@ function webLink(href: string, label: string) {
   } catch { /* Relative and local paths have no browser navigation target. */ }
   return label;
 }
+
+function detachTrailingListParagraph(token: Token): Tokens.Paragraph | undefined {
+  if (token.type !== "list" || !token.ordered) return;
+  const last: Tokens.ListItem | undefined = token.items.at(-1);
+  // A hard break to a single unindented line at the end of a numbered list starts prose in chat.
+  if (last?.tokens.length !== 1 || !/^[^\n]+\n\S[^\n]*\n*$/.test(last.raw)) return;
+  const [block] = last.tokens;
+  if (block.type !== "text" && block.type !== "paragraph") return;
+  const inline: Token[] | undefined = block.tokens;
+  if (!inline) return;
+  const hardBreak = inline.findIndex((token) => token.type === "br");
+  if (hardBreak < 1 || hardBreak === inline.length - 1) return;
+
+  const tail = inline.splice(hardBreak).slice(1);
+  const text = tail.map((token) => token.raw).join("");
+  return { type: "paragraph", raw: text, text, tokens: tail };
+}
+
 const parser = new Marked({
   gfm: true,
+  hooks: {
+    processAllTokens(tokens) {
+      for (let index = 0; index < tokens.length; index++) {
+        const paragraph = detachTrailingListParagraph(tokens[index]);
+        if (paragraph) tokens.splice(index + 1, 0, paragraph);
+      }
+      return tokens;
+    },
+  },
   renderer: {
     // Model and web content may contain HTML; it never becomes active DOM.
     html: ({ text }) => escape(text),
