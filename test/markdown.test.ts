@@ -11,34 +11,38 @@ test("Markdown renders headings, emphasis, lists, quotes, tables, and unfinished
   assert.match(html, /&lt;安全&gt;/);
 });
 
-test("plain line breaks are visible in a chat reply", () => {
+test("ordinary newlines use Markdown soft breaks and copying preserves the original", () => {
   const lines = ["是打算打算", "1.啊啊啊", "2.啊啊啊", "是多少打算"];
   const source = lines.join("\n");
-  assert.equal(markdown(source), `<p>${lines.join("<br>")}</p>\n`);
+  assert.equal(markdown(source), `<p>${source}</p>\n`);
   assert.equal(answerText(source), source);
 });
 
-test("unindented prose after the last numbered item renders as a separate paragraph", () => {
+test("unindented prose is a list continuation until separated by a blank line", () => {
   const list = "啊啊啊啊啊啊\n1. 啊啊啊啊啊啊\n2. 啊啊啊啊啊";
   const tail = "啊啊啊啊啊啊";
-  const expected = markdown(list + "\n\n" + tail);
-  for (const lineBreak of ["\n", " \n", "  \n", "\\\n"]) {
+  for (const [lineBreak, renderedBreak] of [
+    ["\n", "\n"],
+    ["  \n", "<br>"],
+    ["\\\n", "<br>"],
+  ]) {
     const source = list + lineBreak + tail;
-    assert.equal(markdown(source), expected);
+    assert.ok(markdown(source).endsWith(`<li>啊啊啊啊啊${renderedBreak}${tail}</li>\n</ol>\n`));
     assert.equal(answerText(source), source);
   }
+  assert.ok(markdown(list + "\n\n" + tail).endsWith(`</ol>\n<p>${tail}</p>\n`));
 });
 
-test("indented continuation stays in the list before a multiline closing paragraph", () => {
+test("indented continuation stays in the list before a separated closing paragraph", () => {
   const list = "1. 第一项\n2. 第二项  \n   补充说明";
   const tail = "结尾第一行\n结尾第二行";
-  assert.equal(markdown(list + "\n" + tail), markdown(list + "\n\n" + tail));
+  assert.equal(markdown(list + "\n\n" + tail), "<ol>\n<li>第一项</li>\n<li>第二项<br>补充说明</li>\n</ol>\n<p>结尾第一行\n结尾第二行</p>\n");
 });
 
 test("numbered list continuations and Markdown examples retain their formatting", () => {
   const list = "1. 第一项\n2. 第二项";
   assert.match(markdown(list + "  \n   补充说明"), /<li>第二项<br>补充说明<\/li>/);
-  assert.match(markdown(list + "\n   补充说明"), /<li>第二项<br>补充说明<\/li>/);
+  assert.match(markdown(list + "\n   补充说明"), /<li>第二项\n补充说明<\/li>/);
   assert.match(markdown(list + " `行内代码  \n下一行`"), /<li>第二项 <code>行内代码\s+下一行<\/code><\/li>/);
   assert.match(markdown("```md\n" + list + "  \n示例\n```"), /<pre><code>1\. 第一项\n2\. 第二项  \n示例<\/code>/);
 });

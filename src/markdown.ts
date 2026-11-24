@@ -1,4 +1,4 @@
-import { Marked, Renderer, type Token, type Tokens } from "marked";
+import { Marked, Renderer } from "marked";
 import type { WebSource } from "./types.ts";
 
 const escape = (text: string) => text.replace(/[&<>"']/g, (value) =>
@@ -12,43 +12,8 @@ function webLink(href: string, label: string) {
   return label;
 }
 
-function detachTrailingListParagraph(token: Token): Tokens.Paragraph | undefined {
-  if (token.type !== "list" || !token.ordered) return;
-  const last: Tokens.ListItem | undefined = token.items.at(-1);
-  if (last?.tokens.length !== 1) return;
-  const [block] = last.tokens;
-  if (block.type !== "text" && block.type !== "paragraph") return;
-  const inline: Token[] | undefined = block.tokens;
-  if (!inline) return;
-
-  // The last run of unindented lines belongs to the paragraph after the list.
-  const lines = last.raw.trimEnd().split("\n");
-  const tailStart = lines.findLastIndex((line, index) => index === 0 || /^\s/.test(line)) + 1;
-  if (tailStart === lines.length) return;
-  let remainingBreaks = tailStart;
-  const boundary = inline.findIndex((part) => {
-    remainingBreaks -= part.raw.split("\n").length - 1;
-    return remainingBreaks <= 0;
-  });
-  if (boundary < 1 || boundary === inline.length - 1 || remainingBreaks !== 0 || inline[boundary].type !== "br") return;
-
-  const tail = inline.splice(boundary).slice(1);
-  const text = tail.map((token) => token.raw).join("");
-  return { type: "paragraph", raw: text, text, tokens: tail };
-}
-
 const parser = new Marked({
   gfm: true,
-  breaks: true,
-  hooks: {
-    processAllTokens(tokens) {
-      for (let index = 0; index < tokens.length; index++) {
-        const paragraph = detachTrailingListParagraph(tokens[index]);
-        if (paragraph) tokens.splice(index + 1, 0, paragraph);
-      }
-      return tokens;
-    },
-  },
   renderer: {
     // Model and web content may contain HTML; it never becomes active DOM.
     html: ({ text }) => escape(text),
