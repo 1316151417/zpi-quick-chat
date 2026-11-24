@@ -231,7 +231,8 @@ textarea::placeholder { color: var(--muted); }
 .markdown-body a:hover { text-decoration: underline dotted; text-underline-offset: 4px; }
 .markdown-body ul { list-style: disc outside; padding-left: 20px; margin: 12px 0; }
 .markdown-body ol { list-style: decimal inside; padding-left: 0; margin: 12px 0; }
-.markdown-body li { margin: 6px 0; padding-left: 4px; }
+.markdown-body li { margin: 0; padding-block: 0; padding-left: 4px; }
+.markdown-body li + li { margin-block-start: 6px; }
 .markdown-body li::marker { color: var(--muted); }
 .markdown-body li > p { display: inline; margin: 0; }
 .markdown-body li :is(ul, ol) { margin: 6px 0; }

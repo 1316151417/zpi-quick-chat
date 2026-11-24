@@ -15,18 +15,24 @@ function webLink(href: string, label: string) {
 function detachTrailingListParagraph(token: Token): Tokens.Paragraph | undefined {
   if (token.type !== "list" || !token.ordered) return;
   const last: Tokens.ListItem | undefined = token.items.at(-1);
-  // A hard break to a single unindented line at the end of a numbered list starts prose in chat.
-  if (last?.tokens.length !== 1 || !/^[^\n]+\n\S[^\n]*\n*$/.test(last.raw)) return;
+  if (last?.tokens.length !== 1) return;
   const [block] = last.tokens;
   if (block.type !== "text" && block.type !== "paragraph") return;
   const inline: Token[] | undefined = block.tokens;
   if (!inline) return;
-  const hardBreak = inline.findIndex(
-    (token) => token.type === "br" && (token.raw.endsWith("  \n") || token.raw === "\\\n"),
-  );
-  if (hardBreak < 1 || hardBreak === inline.length - 1) return;
 
-  const tail = inline.splice(hardBreak).slice(1);
+  // The last run of unindented lines belongs to the paragraph after the list.
+  const lines = last.raw.trimEnd().split("\n");
+  const tailStart = lines.findLastIndex((line, index) => index === 0 || /^\s/.test(line)) + 1;
+  if (tailStart === lines.length) return;
+  let remainingBreaks = tailStart;
+  const boundary = inline.findIndex((part) => {
+    remainingBreaks -= part.raw.split("\n").length - 1;
+    return remainingBreaks <= 0;
+  });
+  if (boundary < 1 || boundary === inline.length - 1 || remainingBreaks !== 0 || inline[boundary].type !== "br") return;
+
+  const tail = inline.splice(boundary).slice(1);
   const text = tail.map((token) => token.raw).join("");
   return { type: "paragraph", raw: text, text, tokens: tail };
 }
